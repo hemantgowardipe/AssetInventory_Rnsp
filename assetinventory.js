@@ -494,13 +494,14 @@
     return ids.length ? ids.join(",") : RNSP_FILTER_ALL;
   }
 
-  /** Selected Type (toolbar dropdown, not part of the Funnel Filter modal)
-   *  resolved to its EAsset_Type RecordID for AssetTypeFilter, or "All". */
+  /** Selected Type (toolbar dropdown, dynamically populated from EAsset_Type
+   *  by fetchTypesViaSdk - not the Funnel Filter modal). Its option value is
+   *  already the plain EAsset_Type Name (see renderTypeFilter), and that's
+   *  exactly what AssetTypeFilter expects - the same plain text/code shape
+   *  every other RNSP filter arg uses (see buildRnspArgs), not a RecordID. */
   function activeAssetTypeArgValue() {
     const label = String(state.selectedType || "").trim();
-    if (!label) return RNSP_FILTER_ALL;
-    const entry = state.typeLookupByNormalizedName && state.typeLookupByNormalizedName[normalizeToken(label)];
-    return (entry && entry.recordId) || label;
+    return label || RNSP_FILTER_ALL;
   }
 
   /** Builds the exact 8-key Args object ASSET_INVENTORY_RNSP expects, from
