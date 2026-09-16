@@ -1,7 +1,6 @@
 (() => {
   "use strict";
 
-  const OBJECT_NAME_TYPE_PRIMARY = "EAsset_Type";
   const OBJECT_NAME_CATEGORY_PRIMARY = "EAsset_Category";
   const MASTER_EDIT_FORM = {
     repository: "EAsset_Master",
@@ -86,6 +85,13 @@
   };
 
   let filterOptionsLoadPromise = null;
+  // Perf: cache ASSET_INVENTORY_RNSP responses by their exact Args, so
+  // reselecting a filter combination already fetched this session is
+  // instant instead of re-paying the SQL round trip. inventoryFetchAbortController
+  // tracks whichever RNSP request is currently in flight so a newer
+  // selection can cancel it rather than let two race to render.
+  const inventoryResponseCache = new Map();
+  let inventoryFetchAbortController = null;
 
   // Funnel Filter field definitions, mirroring Asset Search's FILTER_FIELDS.
   // "Type" already has its own dedicated, always-visible dropdown on this page
@@ -255,11 +261,12 @@
 
   /** Same auth/error convention as fetchJson, but for endpoints (like /api/rnsp)
    *  that take a JSON request body instead of query-string params. */
-  async function postJson(url, body) {
+  async function postJson(url, body, signal) {
     const response = await fetch(url, {
       method: "POST",
       headers: getAuthHeaders(),
-      body: JSON.stringify(body || {})
+      body: JSON.stringify(body || {}),
+      ...(signal ? { signal } : {})
     });
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     return response.json();
@@ -442,35 +449,53 @@
     return card;
   }
 
-  async function fetchTypesViaSdk() {
-    const qafService = getBundleQafService();
-    if (!qafService || typeof qafService.GetItems !== "function") {
-      throw new Error("QafService.GetItems is not available (bundle.js).");
-    }
-    const payload = await qafService.GetItems(
-      OBJECT_NAME_TYPE_PRIMARY,
-      ["RecordID", "Name"],
-      100000,
-      1,
-      "",
-      "",
-      true
-    );
-    const seen = new Set();
+  /** Workflow that supplies the Asset Type toolbar dropdown's options,
+   *  replacing the previous EAsset_Type SDK call. Fetched lazily on first
+   *  open of the Type dropdown (see ensureAssetTypeOptionsLoaded/
+   *  setTypeFilterOpen) and cached afterward, same pattern as the Funnel
+   *  Filter modal's ASSET_INVENTORY_FILTER-backed dropdowns. */
+  const TYPE_FILTER_WORKFLOW_NAME = "ASSET_INVENTORY_TYPE_FILTER";
+
+  async function fetchAssetTypeFilterOptionsViaWorkflow() {
+    const payload = { Name: TYPE_FILTER_WORKFLOW_NAME, Args: {} };
+    const response = await postJson(buildRnspUrl(), payload);
+    // Documented as a plain object { AssetType: [...] } (not array-wrapped,
+    // and AssetType already an array rather than a JSON string) - handled
+    // defensively in case either ever changes, same as the other workflows.
+    const row = Array.isArray(response) ? response[0] || {} : response || {};
+    const options = buildFilterOptionsFromWorkflowList(row.AssetType);
+
     const types = [];
     const typeLookupByNormalizedName = {};
-    normalizeRecords(payload).forEach((row) => {
-      const recordId = String(row.RecordID || "").trim();
-      const name = String(row.Name || "").trim();
-      if (!name) return;
-      const key = normalizeToken(name);
-      if (seen.has(key)) return;
+    const seen = new Set();
+    options.forEach((opt) => {
+      const key = normalizeToken(opt.value);
+      if (!key || seen.has(key)) return;
       seen.add(key);
-      types.push(name);
-      typeLookupByNormalizedName[key] = { recordId, name };
+      types.push(opt.value);
+      // recordId intentionally empty - see comment above.
+      typeLookupByNormalizedName[key] = { recordId: "", name: opt.label };
     });
     types.sort((a, b) => a.localeCompare(b));
     return { types, typeLookupByNormalizedName };
+  }
+
+  let assetTypeOptionsLoadPromise = null;
+
+  /** Cached so the workflow is only called once per page load unless it
+   *  fails - a failure clears the cache so the next dropdown open retries. */
+  function ensureAssetTypeOptionsLoaded() {
+    if (assetTypeOptionsLoadPromise) return assetTypeOptionsLoadPromise;
+    assetTypeOptionsLoadPromise = fetchAssetTypeFilterOptionsViaWorkflow()
+      .then(({ types = [], typeLookupByNormalizedName = {} }) => {
+        state.types = types;
+        state.typeLookupByNormalizedName = typeLookupByNormalizedName;
+      })
+      .catch((error) => {
+        assetTypeOptionsLoadPromise = null;
+        throw error;
+      });
+    return assetTypeOptionsLoadPromise;
   }
 
   /** RecordID (or plain choice text for ItemStatus) of a single-select active
@@ -494,11 +519,12 @@
     return ids.length ? ids.join(",") : RNSP_FILTER_ALL;
   }
 
-  /** Selected Type (toolbar dropdown, dynamically populated from EAsset_Type
-   *  by fetchTypesViaSdk - not the Funnel Filter modal). Its option value is
-   *  already the plain EAsset_Type Name (see renderTypeFilter), and that's
-   *  exactly what AssetTypeFilter expects - the same plain text/code shape
-   *  every other RNSP filter arg uses (see buildRnspArgs), not a RecordID. */
+  /** Selected Type (toolbar dropdown, dynamically populated from
+   *  ASSET_INVENTORY_TYPE_FILTER by ensureAssetTypeOptionsLoaded - not the
+   *  Funnel Filter modal). Its option value is already the plain Value the
+   *  workflow returned (see renderTypeFilter), and that's exactly what
+   *  AssetTypeFilter expects - the same plain text/code shape every other
+   *  RNSP filter arg uses (see buildRnspArgs), not a RecordID. */
   function activeAssetTypeArgValue() {
     const label = String(state.selectedType || "").trim();
     return label || RNSP_FILTER_ALL;
@@ -541,9 +567,33 @@
    *  fetch - all filtering (Type included) now happens in the SQL behind this
    *  workflow, so no client-side re-filtering is applied to what comes back. */
   async function fetchInventorySummaryByRnsp() {
-    const payload = { Name: RNSP_WORKFLOW_NAME, Args: buildRnspArgs() };
-    const response = await postJson(buildRnspUrl(), payload);
-    return normalizeAssetInventoryResponse(response);
+    const args = buildRnspArgs();
+    const cacheKey = JSON.stringify(args);
+
+    // A newer selection always wins: cancel whatever previous RNSP request
+    // is still in flight before deciding how to serve this one, whether
+    // that's instantly from cache or via a fresh request. Without this, a
+    // slow superseded request could still resolve later and overwrite the
+    // screen with stale data.
+    if (inventoryFetchAbortController) {
+      inventoryFetchAbortController.abort();
+      inventoryFetchAbortController = null;
+    }
+
+    const cached = inventoryResponseCache.get(cacheKey);
+    if (cached) return cached;
+
+    const controller = new AbortController();
+    inventoryFetchAbortController = controller;
+    try {
+      const payload = { Name: RNSP_WORKFLOW_NAME, Args: args };
+      const response = await postJson(buildRnspUrl(), payload, controller.signal);
+      const rows = normalizeAssetInventoryResponse(response);
+      inventoryResponseCache.set(cacheKey, rows);
+      return rows;
+    } finally {
+      if (inventoryFetchAbortController === controller) inventoryFetchAbortController = null;
+    }
   }
 
   /** The status columns are now fixed (RNSP_STATUS_FIELDS/LABELS) rather than
@@ -1079,6 +1129,7 @@
     try {
       state.inventoryRows = await fetchInventorySummaryByRnsp();
     } catch (error) {
+      if (error && error.name === "AbortError") return; // superseded by a newer selection - that call will render instead
       showError(`Unable to apply filters. ${formatFetchError(error)}`);
       state.inventoryRows = [];
     }
@@ -1533,7 +1584,10 @@
     const types = Array.isArray(state.types) ? state.types : [];
     // The empty value is the "no filter" entry, so it doubles as the clear option.
     state.typeFilterOptions = [{ value: "", label: "All Types" }].concat(
-      types.map((type) => ({ value: type, label: type }))
+      types.map((value) => {
+        const entry = state.typeLookupByNormalizedName && state.typeLookupByNormalizedName[normalizeToken(value)];
+        return { value, label: (entry && entry.name) || value };
+      })
     );
     renderTypeFilterOptions("");
     syncTypeFilterInput();
@@ -1560,7 +1614,9 @@
   // "All Types" placeholder rather than showing a filled-in label.
   function syncTypeFilterInput() {
     if (!ui.typeFilterInput) return;
-    ui.typeFilterInput.value = state.selectedType;
+    const options = Array.isArray(state.typeFilterOptions) ? state.typeFilterOptions : [];
+    const match = options.find((opt) => opt.value === state.selectedType);
+    ui.typeFilterInput.value = match ? match.label : state.selectedType;
   }
 
   function setTypeFilterOpen(isOpen) {
@@ -1576,6 +1632,16 @@
     }
     renderTypeFilterOptions("");
     if (state.typeFilterPortal) state.typeFilterPortal.attach();
+    // ASSET_INVENTORY_TYPE_FILTER is called on open, once, and cached
+    // afterward - a later open reuses the cached options instead of
+    // re-calling the workflow.
+    ensureAssetTypeOptionsLoaded()
+      .then(() => {
+        if (state.typeFilterOpen) renderTypeFilter();
+      })
+      .catch((error) => {
+        showError(`Unable to load asset types. ${formatFetchError(error)}`);
+      });
   }
 
   function applySelectedType(nextType) {
@@ -1925,30 +1991,27 @@
     state.isLoading = true;
     setBusy(true);
     clearError();
+    // A forced reload (e.g. after adding a new asset) must never be served
+    // a stale cached count for the current filter combination.
+    inventoryResponseCache.clear();
     const errors = [];
 
-    // RNSP already applies whatever's currently in state.activeFilters/
-    // state.selectedType (see buildRnspArgs), so a forced reload - e.g. after
-    // adding a new asset - naturally keeps reflecting an active filter
-    // without a separate "re-apply filters" pass afterward.
-    const [typesResult, rnspResult, iconsResult] = await Promise.allSettled([
-      fetchTypesViaSdk(),
+    // Asset Type options are intentionally not fetched here - see
+    // ensureAssetTypeOptionsLoaded, called lazily when the Type dropdown is
+    // first opened (ASSET_INVENTORY_TYPE_FILTER is only called on open, per
+    // its integration doc, and cached afterward).
+    const [rnspResult, iconsResult] = await Promise.allSettled([
       fetchInventorySummaryByRnsp(),
       fetchCategoryIconsViaSdk()
     ]);
 
-    if (typesResult.status === "fulfilled") {
-      const { types = [], typeLookupByNormalizedName = {} } = typesResult.value || {};
-      state.types = types;
-      state.typeLookupByNormalizedName = typeLookupByNormalizedName;
-    } else {
-      errors.push(`Types: ${formatFetchError(typesResult.reason)}`);
-      state.types = [];
-      state.typeLookupByNormalizedName = {};
-    }
-
     if (rnspResult.status === "fulfilled") {
       state.inventoryRows = Array.isArray(rnspResult.value) ? rnspResult.value : [];
+      state.statusColumns = getFixedRnspStatusColumns();
+    } else if (rnspResult.reason && rnspResult.reason.name === "AbortError") {
+      // Superseded by a Type/filter selection made before this load
+      // finished - that selection's own applyActiveFiltersAndRefresh call
+      // will fetch and render the correct data, so this is not an error.
       state.statusColumns = getFixedRnspStatusColumns();
     } else {
       errors.push(`Asset inventory: ${formatFetchError(rnspResult.reason)}`);
