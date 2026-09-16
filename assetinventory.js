@@ -9,6 +9,22 @@
   };
   const DEFAULT_CATEGORY_ICON_URL = "/SmartHR/assets/img/no_Record.png";
   const ASSET_DETAILS_PAGE_URL = "/pages/AssetType";
+  // RNSP workflow that now supplies the category-wise summary in place of
+  // /api/Sroa. Args are the exact 8 filter keys the workflow expects; every
+  // call sends all 8, defaulting unset ones to "All" (see buildRnspArgs()).
+  const RNSP_WORKFLOW_NAME = "ASSET_INVENTORY_RNSP";
+  const RNSP_FILTER_ALL = "All";
+  // Fixed status buckets the RNSP query itself groups into (replacing the
+  // dynamic per-tenant ItemStatus list /api/Sroa used to return). Order here
+  // is the order columns render in, left to right.
+  const RNSP_STATUS_FIELDS = ["Allocated", "InStore", "InRepair", "Dispose", "Other"];
+  const RNSP_STATUS_LABELS = {
+    Allocated: "Allocated",
+    InStore: "In Store",
+    InRepair: "In Repair",
+    Dispose: "Dispose",
+    Other: "Other"
+  };
   // Drag limits and the remembered-width key handed to library.js's GridTable,
   // which owns this page's sorting, column resizing and resize indicator line.
   const TABLE_COL_MIN_WIDTH = 90;
@@ -44,10 +60,10 @@
     viewMode: "grid",
     viewModeChosen: false,
     renderedCards: [],
-    sroaRows: [],
-    baseSroaRows: [],
+    inventoryRows: [],
     iconUrlByCategoryRecordId: {},
     iconUrlByCategoryName: {},
+    categoryRecordIdByName: {},
     isLoading: false,
     lastLoadedAt: 0,
     statusColumns: [],
@@ -69,7 +85,6 @@
     assetManagerOptions: []
   };
 
-  let statusCanonicalMap = {};
   let filterOptionsLoadPromise = null;
   const filterOptionsApiCache = {};
 
@@ -242,6 +257,18 @@
     return response.json();
   }
 
+  /** Same auth/error convention as fetchJson, but for endpoints (like /api/rnsp)
+   *  that take a JSON request body instead of query-string params. */
+  async function postJson(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body || {})
+    });
+    if (!response.ok) throw new Error(`Request failed (${response.status})`);
+    return response.json();
+  }
+
   function formatFetchError(error) {
     const msg = String(error && error.message ? error.message : error);
     if (msg === "Failed to fetch" || (error && error.name === "TypeError")) {
@@ -365,26 +392,6 @@
     return out;
   }
 
-  function rebuildStatusCanonicalMap(statuses) {
-    const next = {};
-    (Array.isArray(statuses) ? statuses : []).forEach((status) => {
-      const label = cleanStatusLabel(status);
-      const token = normalizeStatusToken(label);
-      if (!label || !token || Object.prototype.hasOwnProperty.call(next, token)) return;
-      next[token] = label;
-    });
-    statusCanonicalMap = next;
-  }
-
-  function toCanonicalStatus(value) {
-    const trimmed = String(value || "").trim();
-    const normalized = normalizeStatusToken(trimmed);
-    if (normalized && Object.prototype.hasOwnProperty.call(statusCanonicalMap, normalized)) {
-      return statusCanonicalMap[normalized];
-    }
-    return trimmed;
-  }
-
   function isKnownTypeLabel(label) {
     const key = normalizeToken(label);
     if (!key) return false;
@@ -470,115 +477,87 @@
     return { types, typeLookupByNormalizedName };
   }
 
-  function buildSroaUrl(typeValue) {
-    const params = new URLSearchParams({
-      type: String(typeValue || "").trim(),
-      Category: "",
-      amtype: "2"
-    });
-    return `${API_BASE_URL}/api/Sroa?${params.toString()}`;
+  /** RecordID (or plain choice text for ItemStatus) of a single-select active
+   *  filter, or RNSP_FILTER_ALL when that filter isn't set. Mirrors the old
+   *  getSelectedLookupRecordId, but for building RNSP Args instead of a
+   *  where-clause. */
+  function activeFilterArgValue(key) {
+    const selected = state.activeFilters[key];
+    const value = toText(selected && selected.value);
+    return value || RNSP_FILTER_ALL;
   }
 
-  async function fetchInventorySummaryBySroa(typeValue) {
-    return normalizeSroaRows(await fetchJson(buildSroaUrl(typeValue)));
+  /** "Currently Assigned" is multi-select in the UI but RNSP's documented
+   *  AssignedToFilter takes a single value. Until confirmed otherwise, this
+   *  sends every selected employee's RecordID as a comma-separated list -
+   *  double check the SQL side actually parses a CSV list here. */
+  function activeAssignedToArgValue() {
+    const selected = state.activeFilters.AssignedTo;
+    const values = selected && Array.isArray(selected.values) ? selected.values : [];
+    const ids = values.map((emp) => toText(emp && emp.value)).filter(Boolean);
+    return ids.length ? ids.join(",") : RNSP_FILTER_ALL;
   }
 
-  function normalizeSroaRows(payload) {
-    const out = [];
-    const seenInner = new Set();
-
-    function pushCategoryRow(item) {
-      if (!item || typeof item !== "object") return;
-      const flat = flattenRecord(item);
-      const hasCategory = Boolean(String(flat.Category || flat.CategoryName || "").trim());
-      const hasStatuses =
-        Array.isArray(flat.StatusWithNumber) || Array.isArray(flat.statusWithNumber);
-      if (!hasCategory && !hasStatuses) return;
-      out.push(flat);
-    }
-
-    function walk(node, depth) {
-      if (node == null || depth > 6) return;
-      if (Array.isArray(node)) {
-        node.forEach((entry) => walk(entry, depth + 1));
-        return;
-      }
-      if (typeof node !== "object") return;
-      if (seenInner.has(node)) return;
-      seenInner.add(node);
-      const isCategoryRow =
-        Boolean(String(node.Category || node.CategoryName || "").trim()) ||
-        Array.isArray(node.StatusWithNumber) ||
-        Array.isArray(node.statusWithNumber);
-      if (isCategoryRow) {
-        pushCategoryRow(node);
-        return;
-      }
-      const nested = node.Type || node.type || node.Types || node.types;
-      if (Array.isArray(nested)) {
-        nested.forEach((entry) => walk(entry, depth + 1));
-        return;
-      }
-      Object.keys(node).forEach((key) => walk(node[key], depth + 1));
-    }
-
-    walk(payload, 0);
-    return out;
+  /** Selected Type (toolbar dropdown, not part of the Funnel Filter modal)
+   *  resolved to its EAsset_Type RecordID for AssetTypeFilter, or "All". */
+  function activeAssetTypeArgValue() {
+    const label = String(state.selectedType || "").trim();
+    if (!label) return RNSP_FILTER_ALL;
+    const entry = state.typeLookupByNormalizedName && state.typeLookupByNormalizedName[normalizeToken(label)];
+    return (entry && entry.recordId) || label;
   }
 
-  function collectItemStatusesInSroaOrder(sroaRows) {
-    const ordered = [];
-    const seen = new Set();
-    (Array.isArray(sroaRows) ? sroaRows : []).forEach((row) => {
-      const flat = row && typeof row === "object" && !Array.isArray(row) ? row : flattenRecord(row);
-      const statusList = Array.isArray(flat.StatusWithNumber)
-        ? flat.StatusWithNumber
-        : Array.isArray(flat.statusWithNumber)
-          ? flat.statusWithNumber
-          : [];
-      statusList.forEach((entry) => {
-        const rawLabel = String((entry && (entry.ItemStatus || entry.itemStatus)) || "").trim();
-        if (!rawLabel) return;
-        const parsed = parseLookupLabel(rawLabel).trim();
-        if (!parsed) return;
-        if (normalizeStatusToken(parsed) === normalizeStatusToken("GrossTotal")) return;
-        const label = cleanStatusLabel(parsed);
-        if (!label) return;
-        const token = normalizeStatusToken(label);
-        if (!token || seen.has(token)) return;
-        seen.add(token);
-        ordered.push(label);
-      });
-    });
-    return ordered;
+  /** Builds the exact 8-key Args object ASSET_INVENTORY_RNSP expects, from
+   *  whatever combination of the Type dropdown and Funnel Filter modal is
+   *  currently active. Every key is always sent, defaulting to "All" - the
+   *  workflow is not sent a partial arg set. */
+  function buildRnspArgs() {
+    return {
+      CategoryFilter: activeFilterArgValue("Category"),
+      AssetTypeFilter: activeAssetTypeArgValue(),
+      LocationFilter: activeFilterArgValue("Location"),
+      DepartmentFilter: activeFilterArgValue("Department"),
+      VendorFilter: activeFilterArgValue("VendorID"),
+      AssignedToFilter: activeAssignedToArgValue(),
+      AssetManagerFilter: activeFilterArgValue("AssetManager"),
+      ItemStatusFilter: activeFilterArgValue("ItemStatus")
+    };
   }
 
-  function buildStatusMapFromSroa(statusList) {
-    const map = {};
-    if (!Array.isArray(statusList)) return map;
-    statusList.forEach((entry) => {
-      const rawLabel = String((entry && (entry.ItemStatus || entry.itemStatus)) || "").trim();
-      if (!rawLabel) return;
-      const canonical = toCanonicalStatus(parseLookupLabel(rawLabel).trim());
-      if (!canonical) return;
-      if (normalizeStatusToken(canonical) === normalizeStatusToken("GrossTotal")) return;
-      const num = Number((entry && (entry.TotalNumber != null ? entry.TotalNumber : entry.totalNumber)) || 0);
-      map[canonical] = (map[canonical] || 0) + (Number.isFinite(num) ? num : 0);
-    });
-    return map;
+  function buildRnspUrl() {
+    return `${API_BASE_URL}/api/rnsp`;
   }
 
-  function pickGrossTotal(statusList) {
-    if (!Array.isArray(statusList)) return 0;
-    for (let i = 0; i < statusList.length; i += 1) {
-      const entry = statusList[i] || {};
-      const label = String(entry.ItemStatus || entry.itemStatus || "").trim();
-      if (normalizeStatusToken(label) === normalizeStatusToken("GrossTotal")) {
-        const value = Number(entry.TotalNumber != null ? entry.TotalNumber : entry.totalNumber);
-        return Number.isFinite(value) ? value : 0;
-      }
-    }
-    return 0;
+  /** The RNSP response may come back as a bare array, or wrapped in
+   *  data/result/Records - inspect and normalize before use. */
+  function normalizeAssetInventoryResponse(response) {
+    if (Array.isArray(response)) return response;
+    if (response && Array.isArray(response.data)) return response.data;
+    if (response && Array.isArray(response.result)) return response.result;
+    if (response && Array.isArray(response.Records)) return response.Records;
+    return [];
+  }
+
+  /** Calls ASSET_INVENTORY_RNSP with the current filter state and returns the
+   *  normalized array of {Category, Icon, Allocated, InStore, InRepair,
+   *  Dispose, Other, GrossTotal} rows. Replaces the old /api/Sroa summary
+   *  fetch - all filtering (Type included) now happens in the SQL behind this
+   *  workflow, so no client-side re-filtering is applied to what comes back. */
+  async function fetchInventorySummaryByRnsp() {
+    const payload = { Name: RNSP_WORKFLOW_NAME, Args: buildRnspArgs() };
+    const response = await postJson(buildRnspUrl(), payload);
+    return normalizeAssetInventoryResponse(response);
+  }
+
+  /** The status columns are now fixed (RNSP_STATUS_FIELDS/LABELS) rather than
+   *  discovered per-tenant from the data, since the SQL behind RNSP already
+   *  groups every ItemStatus value into these 5 buckets and only returns the
+   *  bucket totals - see "Do Not Add Client-Side Count Logic" in the RNSP
+   *  integration doc. Kept as a function (not a bare constant reference) so
+   *  every existing call site (getActiveStatusColumns, table/CSV headers)
+   *  keeps working unchanged. */
+  function getFixedRnspStatusColumns() {
+    return RNSP_STATUS_FIELDS.map((field) => RNSP_STATUS_LABELS[field] || field);
   }
 
   function sumStatusMapValuesForTokens(statusMap, labelCandidates) {
@@ -599,59 +578,66 @@
 
   function computeUtilizationPercent(statusMap, total) {
     const allocated = sumStatusMapValuesForTokens(statusMap, ["Allocated"]);
-    const disposed = sumStatusMapValuesForTokens(statusMap, ["Disposed"]);
-    const sendForDisposal = sumStatusMapValuesForTokens(statusMap, ["Send for Disposal", "Send For Disposal"]);
-    const totalActive = Math.max(0, Number(total || 0) - disposed - sendForDisposal);
+    // RNSP folds "Disposed" and "Send for Disposal" into a single "Dispose"
+    // bucket - see RNSP_STATUS_FIELDS. Both old labels are still accepted
+    // here so nothing regresses if a caller ever passes a pre-RNSP statusMap.
+    const disposed = sumStatusMapValuesForTokens(statusMap, ["Dispose", "Disposed", "Send for Disposal", "Send For Disposal"]);
+    const totalActive = Math.max(0, Number(total || 0) - disposed);
     if (totalActive <= 0) return 0;
     const pct = (allocated / totalActive) * 100;
     if (!Number.isFinite(pct)) return 0;
     return Math.max(0, Math.min(100, Math.round(pct)));
   }
 
-  function getCardsFromSroaRows(sroaRows, selectedType) {
-    const selectedTypeKey = normalizeToken(selectedType);
-    const cards = [];
-    const seen = new Map();
-    (Array.isArray(sroaRows) ? sroaRows : []).forEach((row) => {
-      const flat = row && typeof row === "object" && !Array.isArray(row) ? row : flattenRecord(row);
-      const rawCategory = String(flat.Category || flat.CategoryName || "").trim();
-      if (!rawCategory) return;
-      const categoryName = parseLookupLabel(rawCategory).trim();
-      const categoryId = parseLookupId(rawCategory);
-      if (!categoryName) return;
-      const rawType = String(flat.Type || flat.AssetType || flat.TypeName || "").trim();
-      const categoryType = parseLookupLabel(rawType).trim();
-      const typeRecordId = parseLookupId(rawType);
-      if (selectedTypeKey && normalizeToken(categoryType) !== selectedTypeKey) return;
+  /** Builds this page's card objects directly from RNSP's fixed-column rows.
+   *  All filtering (Category, Location, Department, Vendor, AssignedTo,
+   *  AssetManager, ItemStatus, and Type) already happened server-side via
+   *  Args, so - per the integration doc - nothing here re-filters or
+   *  re-aggregates; it only reshapes each row into what renderCards/
+   *  renderTableView/exportSummaryCsv already expect. */
+  function getCardsFromRnspRows(rnspRows) {
+    // A specific Type filter is the one case we can still label the cards
+    // with a Type: RNSP doesn't return Type per category row, but if the
+    // user narrowed to one Type we already know which one and its RecordID.
+    const selectedTypeLabel = String(state.selectedType || "").trim();
+    const selectedTypeEntry = selectedTypeLabel
+      ? state.typeLookupByNormalizedName && state.typeLookupByNormalizedName[normalizeToken(selectedTypeLabel)]
+      : null;
+    const categoryType = selectedTypeEntry ? selectedTypeEntry.name : selectedTypeLabel;
+    const typeRecordId = selectedTypeEntry ? selectedTypeEntry.recordId : "";
 
-      const statusList = Array.isArray(flat.StatusWithNumber)
-        ? flat.StatusWithNumber
-        : Array.isArray(flat.statusWithNumber)
-          ? flat.statusWithNumber
-          : [];
-      const statusMap = buildStatusMapFromSroa(statusList);
-      const grossTotal = pickGrossTotal(statusList);
-      const derivedTotal = Object.keys(statusMap).reduce(
-        (sum, key) => sum + Number(statusMap[key] || 0),
-        0
-      );
-      const total = grossTotal || derivedTotal;
-      const dedupeKey = `${normalizeToken(categoryId)}|${normalizeToken(categoryName)}|${normalizeToken(categoryType)}`;
-      const existing = seen.get(dedupeKey);
-      if (existing) {
-        Object.keys(statusMap).forEach((key) => {
-          existing.statusMap[key] = (existing.statusMap[key] || 0) + statusMap[key];
-        });
-        existing.total = Number(existing.total || 0) + total;
-        enrichCardTypeForPrefill(existing);
-        return;
-      }
-      const iconByIdMap = state.iconUrlByCategoryRecordId || {};
-      const iconByNameMap = state.iconUrlByCategoryName || {};
+    const cards = [];
+    const seen = new Set();
+    (Array.isArray(rnspRows) ? rnspRows : []).forEach((row) => {
+      const flat = row && typeof row === "object" && !Array.isArray(row) ? row : flattenRecord(row);
+      const categoryName = String(flat.Category || "").trim();
+      if (!categoryName) return;
+      const nameKey = normalizeToken(categoryName);
+      if (seen.has(nameKey)) return; // RNSP already groups by Category; a repeat would be a duplicate row.
+      seen.add(nameKey);
+
+      const statusMap = {};
+      RNSP_STATUS_FIELDS.forEach((field) => {
+        const label = RNSP_STATUS_LABELS[field] || field;
+        statusMap[label] = Number(flat[field] || 0);
+      });
+      const derivedTotal = RNSP_STATUS_FIELDS.reduce((sum, field) => sum + Number(flat[field] || 0), 0);
+      const total = flat.GrossTotal != null && flat.GrossTotal !== "" ? Number(flat.GrossTotal) || 0 : derivedTotal;
+
+      // RNSP doesn't return the category's RecordID (see doc field list) -
+      // resolved here from the side EAsset_Category lookup by name instead.
+      const categoryId = (state.categoryRecordIdByName && state.categoryRecordIdByName[nameKey]) || "";
+
+      // Icon: prefer the one RNSP returns for this row (doc sections 10-12);
+      // fall back to the side EAsset_Category lookup's icon if RNSP's is
+      // missing/invalid for this category.
+      const rnspIconUrl = parseIconReference(flat.Icon).directUrl;
       const iconUrl =
-        (categoryId && iconByIdMap[categoryId]) ||
-        iconByNameMap[normalizeToken(categoryName)] ||
+        rnspIconUrl ||
+        (categoryId && state.iconUrlByCategoryRecordId && state.iconUrlByCategoryRecordId[categoryId]) ||
+        (state.iconUrlByCategoryName && state.iconUrlByCategoryName[nameKey]) ||
         "";
+
       const card = enrichCardTypeForPrefill({
         recordId: categoryId,
         categoryName,
@@ -661,7 +647,6 @@
         total,
         statusMap
       });
-      seen.set(dedupeKey, card);
       cards.push(card);
     });
     return cards.sort((a, b) => {
@@ -687,17 +672,23 @@
     );
     const byId = {};
     const byName = {};
+    // RNSP's response has no CategoryID/RecordID field (see doc section 1's
+    // field list) but the "Add Asset" prefill and the category drill-through
+    // link both need it, so this SDK call - already fetching EAsset_Category
+    // for its icon - doubles as the CategoryName -> RecordID resolver.
+    const idByName = {};
     normalizeRecords(payload).forEach((row) => {
       const recordId = String(row.RecordID || "").trim();
       const categoryName = String(row.CategoryName || "").trim();
       if (!categoryName) return;
       const key = normalizeToken(categoryName);
+      if (recordId) idByName[key] = recordId;
       const iconRef = parseIconReference(row.Icon);
       const iconUrl = iconRef.directUrl;
       if (iconUrl && recordId) byId[recordId] = iconUrl;
       if (iconUrl) byName[key] = iconUrl;
     });
-    return { byId, byName };
+    return { byId, byName, idByName };
   }
 
   function parseIconReference(raw) {
@@ -973,41 +964,10 @@
     return `${API_BASE_URL}/api/GetRecordsForFields?${qs.toString()}`;
   }
 
-  function isValidWhereFieldName(fieldName) {
-    return /^[A-Za-z][A-Za-z0-9_]*$/.test(toText(fieldName));
-  }
-
+  // Still used by fetchAssetManagerOptionsFromPermissions' User_Permission/
+  // Teams where-clauses, which are unrelated to the RNSP migration.
   function escapeWhereLiteral(value) {
     return String(value == null ? "" : value).replace(/'/g, "''");
-  }
-
-  function buildWhereEquality(fieldName, rawValue) {
-    if (!isValidWhereFieldName(fieldName)) return "";
-    const val = toText(rawValue);
-    if (!val) return "";
-    return `${fieldName}='${escapeWhereLiteral(val)}'`;
-  }
-
-  function wrapWhereClauseGroup(clause) {
-    const text = toText(clause);
-    if (!text) return "";
-    if (text.charAt(0) === "(" && text.charAt(text.length - 1) === ")") return text;
-    if (text.indexOf("<AND>") >= 0 || text.indexOf("<OR>") >= 0) return `(${text})`;
-    return text;
-  }
-
-  function combineWhereClauseParts(parts) {
-    const valid = (Array.isArray(parts) ? parts : []).map(toText).filter(Boolean);
-    if (!valid.length) return "";
-    if (valid.length === 1) return valid[0];
-    return valid.map(wrapWhereClauseGroup).join("<AND>");
-  }
-
-  function combineWhereClauseOrParts(parts) {
-    const valid = (Array.isArray(parts) ? parts : []).map(toText).filter(Boolean);
-    if (!valid.length) return "";
-    if (valid.length === 1) return valid[0];
-    return valid.map(wrapWhereClauseGroup).join("<OR>");
   }
 
   function getFilterFieldByKey(key) {
@@ -1039,155 +999,6 @@
       return `${value};#${label}`;
     }
     return value || label;
-  }
-
-  /**
-   * EAsset_Master.AssignedTo is not a plain lookup ("id;#label") field like
-   * Category/Type/Location - it stores a JSON array of assignee objects, e.g.
-   *   [{"usertype":1,"RecordID":"4cacf55a-724f-4040-8f6d-e94b45272da0"}]
-   * or is null for an unassigned asset. Neither an equality where-clause nor
-   * a <contains> where-clause against this field is honored by the API (both
-   * were tried; the API silently ignores the clause and returns every
-   * record), so this filter has to be applied on the client, against the
-   * actual parsed AssignedTo value, instead of via the server where-clause.
-   */
-  function parseAssignedToRecordIds(rawValue) {
-    if (rawValue == null || rawValue === "") return [];
-    let value = rawValue;
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) return [];
-      try {
-        value = JSON.parse(trimmed);
-      } catch (_error) {
-        return [];
-      }
-    }
-    const list = Array.isArray(value) ? value : [value];
-    const ids = [];
-    list.forEach((item) => {
-      if (!item || typeof item !== "object") return;
-      const id = toText(item.RecordID != null ? item.RecordID : item.recordId != null ? item.recordId : item.recordID);
-      if (id) ids.push(id.toLowerCase());
-    });
-    return ids;
-  }
-
-  /** True when `flat.AssignedTo` (raw EAsset_Master row) names at least one
-   *  of the currently-selected "Currently Assigned" employees. Records with
-   *  a null/empty AssignedTo (unassigned) never match a specific person. */
-  function rowMatchesAssignedToFilter(flat, selectedEmployeeIdSet) {
-    if (!selectedEmployeeIdSet || !selectedEmployeeIdSet.size) return true;
-    const ids = parseAssignedToRecordIds(flat.AssignedTo);
-    if (!ids.length) return false;
-    return ids.some((id) => selectedEmployeeIdSet.has(id));
-  }
-
-  /** Builds the Set of selected employee RecordIDs for the active
-   *  "Currently Assigned" filter, or null when that filter isn't active. */
-  function getSelectedAssignedToIdSet() {
-    const selected = state.activeFilters.AssignedTo;
-    const values = selected && Array.isArray(selected.values) ? selected.values : null;
-    if (!values || !values.length) return null;
-    const ids = values.map((emp) => toText(emp && emp.value).toLowerCase()).filter(Boolean);
-    return ids.length ? new Set(ids) : null;
-  }
-
-  /** True when `flat.VendorID` (raw EAsset_Master row) resolves to the
-   *  currently-selected vendor's RecordID. Matches on the ID embedded in the
-   *  lookup value rather than any label, since the label half of that lookup
-   *  is a vendor code (e.g. "VD005"), not the CompanyName the dropdown shows. */
-  function rowMatchesVendorFilter(flat, selectedVendorRecordId) {
-    if (!selectedVendorRecordId) return true;
-    const rowVendorId = parseLookupId(toText(flat.VendorID)).toLowerCase();
-    if (!rowVendorId) return false;
-    return rowVendorId === selectedVendorRecordId;
-  }
-
-  /** RecordID of the currently-selected Vendor filter value, or null when
-   *  that filter isn't active. */
-  function getSelectedVendorRecordId() {
-    const selected = state.activeFilters.VendorID;
-    const id = toText(selected && selected.value).toLowerCase();
-    return id || null;
-  }
-
-  /** Generic client-side matcher for the plain lookup fields (Category,
-   *  Location, Department) whose equality where-clause this API doesn't
-   *  reliably honor - see buildSingleFilterWhereClause's CLIENT_SIDE_LOOKUP_
-   *  FIELDS notes. Compares the RecordID embedded in the row's raw lookup
-   *  value against the selected option's RecordID. */
-  function rowMatchesLookupIdFilter(rawFieldValue, selectedRecordId) {
-    if (!selectedRecordId) return true;
-    const rowId = parseLookupId(toText(rawFieldValue)).toLowerCase();
-    if (!rowId) return false;
-    return rowId === selectedRecordId;
-  }
-
-  /** RecordID of the currently-selected single-select value for `filterKey`,
-   *  or null when that filter isn't active. */
-  function getSelectedLookupRecordId(filterKey) {
-    const selected = state.activeFilters[filterKey];
-    const id = toText(selected && selected.value).toLowerCase();
-    return id || null;
-  }
-
-  function buildSingleFilterWhereClause(key, selected) {
-    if (!getFilterFieldByKey(key) || !selected) return "";
-    if (key === "AssignedTo") {
-      // Confirmed against the live API: EAsset_Master's AssignedTo column
-      // does not honor a <contains> (or equality) where-clause at all - the
-      // server just ignores it and returns every record regardless. Rather
-      // than send a where-clause fragment that silently does nothing (which
-      // is what was producing MORE records than the unfiltered total), this
-      // filter is applied on the client instead - see
-      // rowMatchesAssignedToFilter() / the filtering step inside
-      // aggregateFilteredAssetsToSroaRows(). Returning "" here just keeps
-      // AssignedTo out of the server-side where clause; it is still fully
-      // enforced, just after the fetch instead of during it.
-      return "";
-    }
-    if (key === "VendorID") {
-      // EAsset_Master.VendorID is a lookup stored as "RecordID;#<vendor code>"
-      // (e.g. "95fa9659-...;#VD005") - the label half is a vendor code, not
-      // the CompanyName the dropdown shows, so matching against CompanyName
-      // (the asset's own separate, denormalized text field) never lines up
-      // with what's actually selected, and - like AssignedTo - a mismatched
-      // where-clause here comes back as an unfiltered fetch of everything
-      // rather than zero rows. This is filtered on the client instead, by
-      // the vendor RecordID embedded in VendorID's lookup value - see
-      // rowMatchesVendorFilter() / the filtering step inside
-      // aggregateFilteredAssetsToSroaRows().
-      return "";
-    }
-    const CLIENT_SIDE_LOOKUP_FIELDS = ["Category", "Location", "Department"];
-    if (CLIENT_SIDE_LOOKUP_FIELDS.indexOf(key) >= 0) {
-      // Department was confirmed against the live API to fail even with the
-      // exact "RecordID;#Label" value it actually stores
-      // (Department='dbb692bf-...;#Corporate' came back as every record,
-      // not a filtered set) - so an equality where-clause on these composite
-      // lookup fields can't be trusted at all here, not just for the fields
-      // (AssignedTo, VendorID) that are structurally different. Category and
-      // Location use the identical lookup shape on the same object, so they
-      // are filtered the same defensive way: fetched raw and matched on the
-      // client by the RecordID embedded in the lookup value - see
-      // rowMatchesLookupIdFilter() / the filtering step inside
-      // aggregateFilteredAssetsToSroaRows().
-      return "";
-    }
-    const resolved = resolveFilterWhereValue(key, selected);
-    if (!isValidFilterWhereValue(key, resolved)) return "";
-    return buildWhereEquality(key, resolved);
-  }
-
-  function buildActiveFiltersWhereClause() {
-    const parts = [];
-    Object.keys(state.activeFilters).forEach((key) => {
-      if (!getFilterFieldByKey(key)) return;
-      const clause = buildSingleFilterWhereClause(key, state.activeFilters[key]);
-      if (clause) parts.push(clause);
-    });
-    return combineWhereClauseParts(parts);
   }
 
   function hasActiveFilters() {
@@ -1479,132 +1290,22 @@
     return filterOptionsLoadPromise;
   }
 
-  /** Aggregates raw EAsset_Master rows (fetched with the active filters' where
-   *  clause) into the same {Category, Type, StatusWithNumber:[...]} shape the
-   *  /api/Sroa endpoint returns, so the existing getCardsFromSroaRows/
-   *  collectItemStatusesInSroaOrder/renderCards/renderTableView pipeline can
-   *  consume filtered results without any changes of its own.
-   *
-   *  Both the category identity and the status label are resolved against the
-   *  unfiltered baseline (state.baseSroaRows / statusCanonicalMap) rather than
-   *  trusted at face value from the raw fetch: a filtered request is always a
-   *  subset of the same assets Sroa already summarized, so every category and
-   *  status it can legitimately produce already exists in that baseline. Any
-   *  row that can't be matched back to a known category, or whose status text
-   *  doesn't canonicalize to a known status (e.g. a slightly different raw
-   *  format, blank value, or field-name mismatch), is left out of the counts
-   *  instead of being bucketed under an invented category/status - which is
-   *  what was causing extra status badges to appear on cards after filtering
-   *  (most visibly with the multi-value "Currently Assigned" filter). */
-  function aggregateFilteredAssetsToSroaRows(rows) {
-    const knownCategoryByToken = new Map();
-    (Array.isArray(state.baseSroaRows) ? state.baseSroaRows : []).forEach((base) => {
-      const flat = base && typeof base === "object" && !Array.isArray(base) ? base : flattenRecord(base);
-      const rawCategory = toText(flat.Category || flat.CategoryName);
-      if (!rawCategory) return;
-      const categoryName = parseLookupLabel(rawCategory).trim();
-      const categoryId = parseLookupId(rawCategory);
-      const rawType = toText(flat.Type || flat.AssetType || flat.TypeName);
-      const known = { rawCategory, rawType };
-      const idToken = normalizeToken(categoryId);
-      const nameToken = normalizeToken(categoryName);
-      if (idToken) knownCategoryByToken.set(`id:${idToken}`, known);
-      if (nameToken) knownCategoryByToken.set(`name:${nameToken}`, known);
-    });
-
-    // The API doesn't honor a server-side where-clause on AssignedTo or
-    // VendorID (see their docs above), so those filters - if active - are
-    // enforced here, per row, against the actual parsed field values.
-    const assignedToIdSet = getSelectedAssignedToIdSet();
-    const selectedVendorRecordId = getSelectedVendorRecordId();
-    const selectedCategoryRecordId = getSelectedLookupRecordId("Category");
-    const selectedLocationRecordId = getSelectedLookupRecordId("Location");
-    const selectedDepartmentRecordId = getSelectedLookupRecordId("Department");
-
-    const map = new Map();
-    const seenRecordIds = new Set();
-    (Array.isArray(rows) ? rows : []).forEach((row) => {
-      const flat = flattenRecord(row);
-
-      // Guard against the same asset being counted twice if the API ever
-      // returns a row more than once (e.g. a join fan-out) - each RecordID
-      // should only ever contribute one unit to one status bucket.
-      const recordId = toText(flat.RecordID);
-      if (recordId) {
-        const recordKey = recordId.toLowerCase();
-        if (seenRecordIds.has(recordKey)) return;
-        seenRecordIds.add(recordKey);
-      }
-
-      if (!rowMatchesAssignedToFilter(flat, assignedToIdSet)) return;
-      if (!rowMatchesVendorFilter(flat, selectedVendorRecordId)) return;
-      if (!rowMatchesLookupIdFilter(flat.Location, selectedLocationRecordId)) return;
-      if (!rowMatchesLookupIdFilter(flat.Department, selectedDepartmentRecordId)) return;
-
-      const rawCategoryField = toText(flat.Category || flat.ItemCategory);
-      if (!rawCategoryField) return;
-      if (selectedCategoryRecordId && !rowMatchesLookupIdFilter(rawCategoryField, selectedCategoryRecordId)) return;
-      const fieldCategoryName = parseLookupLabel(rawCategoryField).trim();
-      const fieldCategoryId = parseLookupId(rawCategoryField);
-      const known =
-        (fieldCategoryId && knownCategoryByToken.get(`id:${normalizeToken(fieldCategoryId)}`)) ||
-        (fieldCategoryName && knownCategoryByToken.get(`name:${normalizeToken(fieldCategoryName)}`));
-      if (!known) return; // Category not part of the unfiltered summary - skip rather than inventing a new card.
-
-      const rawStatus = toText(flat.ItemStatus || flat.Status);
-      const statusToken = normalizeStatusToken(cleanStatusLabel(rawStatus));
-      if (!statusToken || !Object.prototype.hasOwnProperty.call(statusCanonicalMap, statusToken)) return; // Not a known status - skip rather than adding a new status column.
-      const canonicalStatus = statusCanonicalMap[statusToken];
-
-      const key = normalizeToken(fieldCategoryId) || normalizeToken(fieldCategoryName);
-      let entry = map.get(key);
-      if (!entry) {
-        entry = { Category: known.rawCategory, Type: known.rawType, StatusWithNumber: [], __statusIndex: {} };
-        map.set(key, entry);
-      }
-      if (!entry.__statusIndex[statusToken]) {
-        const item = { ItemStatus: canonicalStatus, TotalNumber: 0 };
-        entry.__statusIndex[statusToken] = item;
-        entry.StatusWithNumber.push(item);
-      }
-      entry.__statusIndex[statusToken].TotalNumber += 1;
-    });
-    const out = [];
-    map.forEach((entry) => {
-      const total = entry.StatusWithNumber.reduce((sum, s) => sum + Number(s.TotalNumber || 0), 0);
-      entry.StatusWithNumber.push({ ItemStatus: "GrossTotal", TotalNumber: total });
-      delete entry.__statusIndex;
-      out.push(entry);
-    });
-    return out;
-  }
-
-  async function fetchFilteredAssetRowsForAggregation(whereClause) {
-    const url = buildGetRecordsForFieldsUrl(
-      "EAsset_Master",
-      "RecordID,Category,ItemCategory,Type,ItemType,ItemStatus,Status,AssignedTo,VendorID,Location,Department",
-      whereClause
-    );
-    const payload = await fetchJson(url);
-    return normalizeRecords(payload);
-  }
-
-  /** Re-fetches (when filters are active) or restores (when cleared) the
-   *  inventory summary, then re-renders through the existing pipeline. */
+  /** Re-fetches the inventory summary from RNSP with whatever combination of
+   *  the Type dropdown and Funnel Filter modal is currently active (every
+   *  Args key always sent, unset ones defaulting to "All" - see
+   *  buildRnspArgs), then re-renders. Used for the Type dropdown, Apply
+   *  Filters and Clear Filters alike, since RNSP is now the single source of
+   *  truth for both the unfiltered and any filtered view - there's no cached
+   *  "unfiltered baseline" to instantly restore from anymore, so Clear
+   *  Filters costs one more round trip than it used to. */
   async function applyActiveFiltersAndRefresh() {
     setBusy(true);
     clearError();
     try {
-      if (hasActiveFilters()) {
-        const whereClause = buildActiveFiltersWhereClause();
-        const rawRows = await fetchFilteredAssetRowsForAggregation(whereClause);
-        state.sroaRows = aggregateFilteredAssetsToSroaRows(rawRows);
-      } else {
-        state.sroaRows = Array.isArray(state.baseSroaRows) ? state.baseSroaRows.slice() : [];
-      }
+      state.inventoryRows = await fetchInventorySummaryByRnsp();
     } catch (error) {
       showError(`Unable to apply filters. ${formatFetchError(error)}`);
-      state.sroaRows = Array.isArray(state.baseSroaRows) ? state.baseSroaRows.slice() : [];
+      state.inventoryRows = [];
     }
     renderFromState();
     setBusy(false);
@@ -2096,7 +1797,11 @@
 
   function applySelectedType(nextType) {
     state.selectedType = String(nextType || "").trim();
-    renderFromState();
+    // Re-render immediately from the currently-cached rows so the Type
+    // dropdown itself feels instant (its own label/highlight, not the cards),
+    // then refresh from RNSP with AssetTypeFilter set to the new selection.
+    renderTypeFilter();
+    applyActiveFiltersAndRefresh();
   }
 
   function renderCards(cards) {
@@ -2303,7 +2008,7 @@
 
   function renderFromState() {
     renderTypeFilter();
-    const cards = getCardsFromSroaRows(state.sroaRows, state.selectedType);
+    const cards = getCardsFromRnspRows(state.inventoryRows);
     state.renderedCards = cards;
     renderCards(cards);
     renderTableView(cards);
@@ -2439,9 +2144,13 @@
     clearError();
     const errors = [];
 
-    const [typesResult, sroaResult, iconsResult] = await Promise.allSettled([
+    // RNSP already applies whatever's currently in state.activeFilters/
+    // state.selectedType (see buildRnspArgs), so a forced reload - e.g. after
+    // adding a new asset - naturally keeps reflecting an active filter
+    // without a separate "re-apply filters" pass afterward.
+    const [typesResult, rnspResult, iconsResult] = await Promise.allSettled([
       fetchTypesViaSdk(),
-      fetchInventorySummaryBySroa(""),
+      fetchInventorySummaryByRnsp(),
       fetchCategoryIconsViaSdk()
     ]);
 
@@ -2455,43 +2164,31 @@
       state.typeLookupByNormalizedName = {};
     }
 
-    if (sroaResult.status === "fulfilled") {
-      state.sroaRows = Array.isArray(sroaResult.value) ? sroaResult.value : [];
-      // Kept aside so "Clear Filters" can restore the complete, unfiltered
-      // inventory instantly without another round trip to /api/Sroa.
-      state.baseSroaRows = state.sroaRows.slice();
-      state.statusColumns = dedupeStatuses(collectItemStatusesInSroaOrder(state.sroaRows));
-      rebuildStatusCanonicalMap(state.statusColumns);
+    if (rnspResult.status === "fulfilled") {
+      state.inventoryRows = Array.isArray(rnspResult.value) ? rnspResult.value : [];
+      state.statusColumns = getFixedRnspStatusColumns();
     } else {
-      errors.push(`Sroa summary: ${formatFetchError(sroaResult.reason)}`);
-      state.sroaRows = [];
-      state.baseSroaRows = [];
-      state.statusColumns = [];
-      rebuildStatusCanonicalMap([]);
+      errors.push(`Asset inventory: ${formatFetchError(rnspResult.reason)}`);
+      state.inventoryRows = [];
+      state.statusColumns = getFixedRnspStatusColumns();
     }
 
     if (iconsResult.status === "fulfilled") {
-      const { byId = {}, byName = {} } = iconsResult.value || {};
+      const { byId = {}, byName = {}, idByName = {} } = iconsResult.value || {};
       state.iconUrlByCategoryRecordId = byId;
       state.iconUrlByCategoryName = byName;
+      state.categoryRecordIdByName = idByName;
     } else {
       state.iconUrlByCategoryRecordId = {};
       state.iconUrlByCategoryName = {};
+      state.categoryRecordIdByName = {};
     }
 
     if (errors.length) showError(errors.join(" | "));
     state.isLoading = false;
     setBusy(false);
     state.lastLoadedAt = Date.now();
-    // A full reload (e.g. after adding a new asset) refetches the unfiltered
-    // summary above; if a Funnel Filter is still active, re-apply it now so
-    // the on-screen cards keep reflecting the filtered set rather than
-    // silently reverting to the full inventory.
-    if (hasActiveFilters()) {
-      await applyActiveFiltersAndRefresh();
-    } else {
-      renderFromState();
-    }
+    renderFromState();
   }
 
   // Type filter behavior: open/close, type-to-filter and commit. The floating
