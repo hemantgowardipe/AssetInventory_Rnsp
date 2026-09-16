@@ -86,7 +86,6 @@
   };
 
   let filterOptionsLoadPromise = null;
-  const filterOptionsApiCache = {};
 
   // Funnel Filter field definitions, mirroring Asset Search's FILTER_FIELDS.
   // "Type" already has its own dedicated, always-visible dropdown on this page
@@ -104,9 +103,6 @@
     { key: "AssetManager", label: "Asset Manager", employeeSource: "manager" }
   ];
   const FILTER_PLACEHOLDER = "Select to apply";
-  // Same permission-scoped App record used by Asset Search to resolve the
-  // Asset Manager filter's option list from User_Permission/Teams/Employees.
-  const ASSETS_APP_CONFIG_RECORD_ID = "80ec44a8-a288-4dea-afaf-f2ccb9f7a952";
 
   function resolveApiBaseUrl() {
     try {
@@ -941,34 +937,14 @@
 
   /*
    * ---------------------------------------------------------------------
-   * Funnel Filter - data sources, API calls and where-clause construction.
-   * Ported from Asset Search's search.js (buildActiveFiltersWhereClause,
-   * fetchFilterOptionsFromApi, loadTypeFilterOptions/loadLocationFilter
-   * Options/loadDepartmentFilterOptions/loadVendorFilterOptions/
-   * loadItemStatusFilterOptions/loadAssetManagerFilterOptions/loadEmployeeData)
-   * so this page fetches dropdown values, builds its where clause and applies
-   * filters using the exact same APIs, payload shapes and value-mapping rules.
+   * Funnel Filter - modal markup/interaction, draft/apply/clear, and (below,
+   * see loadFilterOptionsFromWorkflow) fetching every dropdown's option list
+   * from the ASSET_INVENTORY_FILTER workflow. Originally ported from Asset
+   * Search's search.js with its own per-field GetRecordsForFields/
+   * permission-chain lookups; those were replaced by the single workflow
+   * call once ASSET_INVENTORY_FILTER became available.
    * ---------------------------------------------------------------------
    */
-
-  function buildGetRecordsForFieldsUrl(objectName, fieldList, whereClause) {
-    const qs = new URLSearchParams({
-      objectName: toText(objectName),
-      fieldList: toText(fieldList),
-      orderBy: "",
-      whereClause: toText(whereClause),
-      pageSize: "100000",
-      pageNumber: "1",
-      isAscending: "true"
-    });
-    return `${API_BASE_URL}/api/GetRecordsForFields?${qs.toString()}`;
-  }
-
-  // Still used by fetchAssetManagerOptionsFromPermissions' User_Permission/
-  // Teams where-clauses, which are unrelated to the RNSP migration.
-  function escapeWhereLiteral(value) {
-    return String(value == null ? "" : value).replace(/'/g, "''");
-  }
 
   function getFilterFieldByKey(key) {
     return FILTER_FIELDS.find((field) => field.key === key) || null;
@@ -1005,288 +981,86 @@
     return Object.keys(state.activeFilters).length > 0;
   }
 
-  /** Generic "fetch RecordID+label pairs from GetRecordsForFields" loader for
-   *  fields that (like Category) are plain lookups on EAsset_Master, stored
-   *  as "RecordID;#Label" - e.g. Location, Department. `extractRow` returns
-   *  { recordId, label } for each fetched row. */
-  function fetchFilterOptionsFromApi(url, extractRow) {
-    if (filterOptionsApiCache[url]) return filterOptionsApiCache[url];
-    const requestPromise = fetchJson(url)
-      .then((payload) => {
-        const rows = normalizeRecords(payload).map((row) => flattenRecord(row));
-        const seen = new Set();
-        const options = [];
-        rows.forEach((row) => {
-          const extracted = extractRow(row) || {};
-          const recordId = toText(extracted.recordId);
-          const label = toText(extracted.label);
-          if (!recordId || !label) return;
-          const key = recordId.toLowerCase();
-          if (seen.has(key)) return;
-          seen.add(key);
-          const queryValue = `${recordId};#${label}`;
-          options.push({ value: recordId, label, queryValue, queryCandidates: [queryValue, recordId, label] });
-        });
-        options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-        return options;
-      })
-      .catch(() => []);
-    filterOptionsApiCache[url] = requestPromise;
-    return requestPromise;
-  }
+  /** Name of the workflow that supplies every Funnel Filter dropdown's
+   *  option list in one call, replacing the old per-field GetRecordsForFields/
+   *  ObjectGet/permission-chain lookups below. Uses the same /api/rnsp
+   *  endpoint and Name/Args envelope as ASSET_INVENTORY_RNSP - the two
+   *  workflows are never combined into one call, per the integration doc. */
+  const FILTER_WORKFLOW_NAME = "ASSET_INVENTORY_FILTER";
 
-  async function loadCategoryFilterOptions() {
-    if (Array.isArray(state.categoryFilterOptions) && state.categoryFilterOptions.length) return;
-    try {
-      const url = buildGetRecordsForFieldsUrl("EAsset_Category", "RecordID,CategoryName,Name", "");
-      const payload = await fetchJson(url);
-      const rows = normalizeRecords(payload).map((row) => flattenRecord(row));
-      const seen = new Set();
-      const options = [];
-      rows.forEach((row) => {
-        const recordId = toText(row.RecordID);
-        const label = toText(row.CategoryName || row.Name);
-        if (!recordId || !label) return;
-        const key = recordId.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        const queryValue = `${recordId};#${label}`;
-        options.push({ value: recordId, label, queryValue, queryCandidates: [queryValue, recordId, label] });
-      });
-      options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-      state.categoryFilterOptions = options;
-    } catch (_error) {
-      state.categoryFilterOptions = [];
-    }
-  }
-
-  async function loadLocationFilterOptions() {
-    if (Array.isArray(state.locationFilterOptions) && state.locationFilterOptions.length) return;
-    state.locationFilterOptions = await fetchFilterOptionsFromApi(
-      buildGetRecordsForFieldsUrl("Location", "RecordID,Name", ""),
-      (row) => ({ recordId: row.RecordID, label: row.Name })
-    );
-  }
-
-  async function loadDepartmentFilterOptions() {
-    if (Array.isArray(state.departmentFilterOptions) && state.departmentFilterOptions.length) return;
-    state.departmentFilterOptions = await fetchFilterOptionsFromApi(
-      buildGetRecordsForFieldsUrl("Department", "RecordID,Name", ""),
-      (row) => ({ recordId: row.RecordID, label: row.Name })
-    );
-  }
-
-  async function loadVendorFilterOptions() {
-    if (Array.isArray(state.vendorFilterOptions) && state.vendorFilterOptions.length) return;
-    const url = buildGetRecordsForFieldsUrl("Vendor", "RecordID,CompanyName", "");
-    if (filterOptionsApiCache[url]) {
-      state.vendorFilterOptions = await filterOptionsApiCache[url];
-      return;
-    }
-    const requestPromise = fetchJson(url)
-      .then((payload) => {
-        const rows = normalizeRecords(payload).map((row) => flattenRecord(row));
-        const seen = new Set();
-        const options = [];
-        rows.forEach((row) => {
-          const recordId = toText(row.RecordID);
-          const companyName = toText(row.CompanyName);
-          if (!recordId || !companyName) return;
-          const key = recordId.toLowerCase();
-          if (seen.has(key)) return;
-          seen.add(key);
-          options.push({
-            value: recordId,
-            label: companyName,
-            queryValue: companyName,
-            queryCandidates: [companyName, `${recordId};#${companyName}`, recordId]
-          });
-        });
-        options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-        return options;
-      })
-      .catch(() => []);
-    filterOptionsApiCache[url] = requestPromise;
-    state.vendorFilterOptions = await requestPromise;
-  }
-
-  async function loadItemStatusFilterOptions() {
-    if (Array.isArray(state.itemStatusFilterOptions) && state.itemStatusFilterOptions.length) return;
-    try {
-      const url = `${API_BASE_URL}/api/ObjectGet?option=object&objectID=${encodeURIComponent("EAsset_Master")}`;
-      const payload = await fetchJson(url);
-      const obj = Array.isArray(payload) ? payload[0] : payload;
-      if (!obj || !Array.isArray(obj.Fields)) return;
-      const itemStatusField = obj.Fields.find((field) => field && field.InternalName === "ItemStatus");
-      if (!itemStatusField || !itemStatusField.Choices) return;
-      const seen = new Set();
-      const options = [];
-      String(itemStatusField.Choices)
-        .split(";#")
-        .forEach((part) => {
-          const val = toText(part);
-          if (!val) return;
-          const key = val.toLowerCase();
-          if (seen.has(key)) return;
-          seen.add(key);
-          options.push({ value: val, label: val, queryValue: val, queryCandidates: [val] });
-        });
-      if (options.length) state.itemStatusFilterOptions = options;
-    } catch (_error) {
-      // Leave state.itemStatusFilterOptions empty; getFilterOptions() and
-      // isValidItemStatusValue() both fall back gracefully when it's empty.
-    }
-  }
-
-  async function loadEmployeeFilterOptions() {
-    if (Array.isArray(state.employeeOptions) && state.employeeOptions.length) return;
-    try {
-      const url = buildGetRecordsForFieldsUrl("Employees", "RecordID,FirstName,LastName,IsOffboarded", "");
-      const payload = await fetchJson(url);
-      const rows = normalizeRecords(payload)
-        .map((row) => flattenRecord(row))
-        .filter((row) => toText(row.IsOffboarded).toLowerCase() !== "true");
-      const seen = new Set();
-      const options = [];
-      rows.forEach((row) => {
-        const recordId = toText(row.RecordID);
-        const label = `${toText(row.FirstName)} ${toText(row.LastName)}`.trim();
-        if (!recordId || !label) return;
-        const key = recordId.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        const queryValue = `${recordId};#${label}`;
-        options.push({ value: recordId, label, queryValue, queryCandidates: [queryValue, recordId, label] });
-      });
-      options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-      state.employeeOptions = options;
-    } catch (_error) {
-      state.employeeOptions = [];
-    }
-  }
-
-  function isGuidValue(value) {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(toText(value));
-  }
-
-  function isAssetManagerEligibleRole(roleValue) {
-    const label = parseLookupLabel(roleValue).trim();
-    if (!label) return false;
-    return /^(admin|edit)(\s|$)/i.test(label);
-  }
-
-  function parseProfileOrTeamItems(raw) {
+  /** Each of the workflow's 8 response properties (Category, AssetType,
+   *  Location, Department, Vendor, AssignedTo, AssetManager, ItemStatus) is
+   *  itself a JSON string encoding an array of {Value, Label} pairs - parse
+   *  per-property, not the whole response as one nested object. Null, empty,
+   *  or invalid JSON for any property yields an empty list for that dropdown
+   *  rather than failing the whole load. */
+  function parseFilterWorkflowOptionListJson(raw) {
     if (raw == null || raw === "") return [];
-    if (Array.isArray(raw)) return raw;
+    let parsed;
     try {
-      const parsed = typeof raw === "object" ? raw : JSON.parse(toText(raw) || "[]");
-      return Array.isArray(parsed) ? parsed : [];
+      parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     } catch (_error) {
       return [];
     }
+    return Array.isArray(parsed) ? parsed : [];
   }
 
-  async function fetchRepositoryRecordsForFilter(objectName, fieldList, whereClause) {
-    const url = buildGetRecordsForFieldsUrl(objectName, fieldList, whereClause);
-    if (filterOptionsApiCache[url]) return filterOptionsApiCache[url];
-    const requestPromise = fetchJson(url)
-      .then((payload) => normalizeRecords(payload).map((row) => flattenRecord(row)))
-      .catch(() => []);
-    filterOptionsApiCache[url] = requestPromise;
-    return requestPromise;
+  /** Maps a workflow property's parsed {Value, Label} pairs onto this page's
+   *  existing filter-option shape. Value is what gets sent back to RNSP
+   *  (already the exact string RNSP expects - a name/code for Category/
+   *  Location/Department/Vendor/ItemStatus, a GUID for AssignedTo/
+   *  AssetManager), Label is only ever shown in the dropdown. */
+  function buildFilterOptionsFromWorkflowList(raw) {
+    const rows = parseFilterWorkflowOptionListJson(raw);
+    const seen = new Set();
+    const options = [];
+    rows.forEach((row) => {
+      const value = toText(row && (row.Value != null ? row.Value : row.value));
+      if (!value) return;
+      const label = toText(row && (row.Label != null ? row.Label : row.label)) || value;
+      const key = value.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      options.push({ value, label, queryValue: value, queryCandidates: [value, label] });
+    });
+    options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    return options;
   }
 
-  /** Same permission -> teams -> employees resolution chain as Asset Search's
-   *  fetchAssetManagerOptionsFromPermissions, scoped to this Assets app. */
-  async function fetchAssetManagerOptionsFromPermissions() {
-    const cacheKey = "asset-manager-permissions";
-    if (filterOptionsApiCache[cacheKey]) return filterOptionsApiCache[cacheKey];
-    const requestPromise = (async () => {
-      const permRows = await fetchRepositoryRecordsForFilter(
-        "User_Permission",
-        "RecordID,ProfileorTeam,AppName,Role",
-        `AppName='${escapeWhereLiteral(ASSETS_APP_CONFIG_RECORD_ID)}'`
-      );
-      const userIds = [];
-      const teamIds = [];
-      const seenUser = new Set();
-      const seenTeam = new Set();
-      permRows.forEach((row) => {
-        if (!isAssetManagerEligibleRole(row.Role)) return;
-        parseProfileOrTeamItems(row.ProfileorTeam).forEach((item) => {
-          if (!item) return;
-          const id = toText(item.RecordID);
-          if (!isGuidValue(id)) return;
-          const userType = Number(item.UserType);
-          const key = id.toLowerCase();
-          if (userType === 2) {
-            if (seenTeam.has(key)) return;
-            seenTeam.add(key);
-            teamIds.push(id);
-          } else {
-            if (seenUser.has(key)) return;
-            seenUser.add(key);
-            userIds.push(id);
-          }
-        });
-      });
-      if (teamIds.length) {
-        const teamClause = teamIds.map((id) => `RecordID='${escapeWhereLiteral(id)}'`).join("<OR>");
-        const teamRows = await fetchRepositoryRecordsForFilter("Teams", "RecordID,TeamMembers", teamClause);
-        teamRows.forEach((teamRow) => {
-          const parts = toText(teamRow.TeamMembers).split(";#");
-          for (let i = 0; i < parts.length; i += 2) {
-            const memberId = toText(parts[i]);
-            if (!isGuidValue(memberId)) continue;
-            const key = memberId.toLowerCase();
-            if (seenUser.has(key)) continue;
-            seenUser.add(key);
-            userIds.push(memberId);
-          }
-        });
-      }
-      if (!userIds.length) return [];
-      const userClause = userIds.map((id) => `RecordID='${escapeWhereLiteral(id)}'`).join("<OR>");
-      const employeeRows = await fetchRepositoryRecordsForFilter(
-        "Employees",
-        "RecordID,EmployeeID,FirstName,LastName,EmployeeName",
-        userClause
-      );
-      const seen = new Set();
-      const options = [];
-      employeeRows.forEach((row) => {
-        const recordId = toText(row.RecordID);
-        let label = `${toText(row.FirstName)} ${toText(row.LastName)}`.trim();
-        if (!label) label = toText(row.EmployeeName);
-        if (!recordId || !label) return;
-        const key = recordId.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
-        const queryValue = `${recordId};#${label}`;
-        options.push({ value: recordId, label, queryValue, queryCandidates: [queryValue, recordId, label] });
-      });
-      options.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-      return options;
-    })().catch(() => []);
-    filterOptionsApiCache[cacheKey] = requestPromise;
-    return requestPromise;
+  /** Calls ASSET_INVENTORY_FILTER and returns its single response row (the
+   *  workflow always returns a one-element array), or {} if the response was
+   *  empty/unparseable so every buildFilterOptionsFromWorkflowList() call
+   *  below still degrades to an empty list instead of throwing. */
+  async function fetchFilterWorkflowRow() {
+    const payload = { Name: FILTER_WORKFLOW_NAME, Args: {} };
+    const response = await postJson(buildRnspUrl(), payload);
+    const rows = normalizeAssetInventoryResponse(response);
+    return (rows && rows[0]) || {};
   }
 
-  async function loadAssetManagerFilterOptions() {
-    state.assetManagerOptions = await fetchAssetManagerOptionsFromPermissions();
+  /** One call populates every Funnel Filter dropdown's option list (Type's
+   *  own toolbar dropdown is intentionally not sourced from here - see the
+   *  scoping note where this was introduced). */
+  async function loadFilterOptionsFromWorkflow() {
+    const row = await fetchFilterWorkflowRow();
+    state.categoryFilterOptions = buildFilterOptionsFromWorkflowList(row.Category);
+    state.locationFilterOptions = buildFilterOptionsFromWorkflowList(row.Location);
+    state.departmentFilterOptions = buildFilterOptionsFromWorkflowList(row.Department);
+    state.vendorFilterOptions = buildFilterOptionsFromWorkflowList(row.Vendor);
+    state.itemStatusFilterOptions = buildFilterOptionsFromWorkflowList(row.ItemStatus);
+    state.employeeOptions = buildFilterOptionsFromWorkflowList(row.AssignedTo);
+    state.assetManagerOptions = buildFilterOptionsFromWorkflowList(row.AssetManager);
   }
 
+  /** Cached so the workflow is only called once per page load unless it
+   *  fails - a failure clears the cache so the next modal open retries
+   *  rather than being stuck on a permanently-rejected promise. */
   function ensureFilterOptionsLoaded() {
     if (filterOptionsLoadPromise) return filterOptionsLoadPromise;
-    filterOptionsLoadPromise = Promise.all([
-      loadCategoryFilterOptions(),
-      loadLocationFilterOptions(),
-      loadDepartmentFilterOptions(),
-      loadVendorFilterOptions(),
-      loadItemStatusFilterOptions(),
-      loadEmployeeFilterOptions(),
-      loadAssetManagerFilterOptions()
-    ]).catch(() => {});
+    filterOptionsLoadPromise = loadFilterOptionsFromWorkflow().catch((error) => {
+      filterOptionsLoadPromise = null;
+      throw error;
+    });
     return filterOptionsLoadPromise;
   }
 
@@ -1663,10 +1437,18 @@
     renderFilterFields();
     // Dropdown values are fetched lazily on first open (rather than blocking
     // the page's initial summary load) and the fields are re-rendered in
-    // place once they resolve, same set of APIs/values Asset Search uses.
-    ensureFilterOptionsLoaded().then(() => {
-      if (ui.filterModalOverlay && !ui.filterModalOverlay.hidden) renderFilterFields();
-    });
+    // place once they resolve. setBusy/showError reuse the same loading and
+    // error UI the main dashboard fetch uses - no new UI for this.
+    setBusy(true);
+    ensureFilterOptionsLoaded()
+      .then(() => {
+        setBusy(false);
+        if (ui.filterModalOverlay && !ui.filterModalOverlay.hidden) renderFilterFields();
+      })
+      .catch((error) => {
+        setBusy(false);
+        showError(`Unable to load filter options. ${formatFetchError(error)}`);
+      });
   }
 
   function closeFilterModal() {
