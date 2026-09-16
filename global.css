@@ -1,0 +1,2213 @@
+/*
+ * SECTION: CSS Custom Properties and Design Tokens
+ * This section defines the design system tokens used by all reusable styles.
+ * Update these variables to theme the full app without touching component rules.
+ */
+:root {
+  --font-family-base: "Poppins", "DM Sans", "Segoe UI", Arial, sans-serif;
+  
+  --color-bg-canvas: #FAFAFA;
+  --color-bg-surface: #ffffff;
+  --color-bg-subtle: #f8fafc;
+  --color-bg-muted: #f3f4f6;
+  --color-bg-overlay: rgba(15, 23, 42, 0.28);
+
+  --color-text-primary: #111827;
+  --color-text-secondary: #334155;
+  --color-text-muted: #64748b;
+  --color-text-inverse: #ffffff;
+  --color-link: #0ea5e9;
+
+  --color-border-default: #e5e7eb;
+  --color-border-strong: #c8ccd4;
+  --color-border-nav: #9b97979e;
+  --color-control-border: #d1d5db;
+  --scrollbar-thumb: #c7d2e1;
+  --scrollbar-thumb-active: #aebfd6;
+  --scrollbar-track: transparent;
+
+  --color-primary: #2563eb;
+  --color-primary-soft: #eaf0ff;
+  --color-accent-dark: #0f172a;
+
+  /*
+   * Selected-state palette for .qaf-btn--square-inverse (see the square button
+   * section). Kept as tokens, not literals, so the "currently chosen view"
+   * blue can be retuned in one place.
+   */
+  --qaf-square-active-fg: #60a5fa;
+  --qaf-square-active-bg: #eff6ff;
+  --qaf-square-active-border: #93c5fd;
+
+  /* Glyph size for every .qaf-btn--square icon button (see that section). */
+  --qaf-btn-square-icon-size: 14px;
+
+  /*
+   * Marker read by library.js's ensureGridTableStyles(). While this is 1 the
+   * "Grid Table Runtime" section below is in effect, so library.js skips
+   * injecting its own copy of those rules at script time - which is what used
+   * to make a grid paint once as an auto-layout table and then snap to the
+   * fixed layout (the visible render flicker). Only clear it if that section is
+   * removed.
+   */
+  --qaf-grid-runtime: 1;
+
+  /*
+   * Sort-glyph geometry for grid headers. --qaf-th-sort-reserve is the band the
+   * header label keeps clear on its right, and is what guarantees the glyph
+   * never lands on the heading text: the label pads itself by this much, so its
+   * text ellipsizes before reaching the glyph at any column width and whatever
+   * padding the host <th> happens to carry. Keep it >= right + size + 4.
+   */
+  --qaf-th-sort-icon-right: 10px;
+  --qaf-th-sort-icon-size: 10px;
+  --qaf-th-sort-reserve: 24px;
+
+  /* Column-resize separator ("pipe") shown on every column while the header
+     row is hovered. */
+  --qaf-col-resizer-hit: 10px;
+  --qaf-col-resizer-width: 2px;
+
+  /*
+   * Button metrics for the CS_SETTING theme buttons (see that section). Three
+   * page stylesheets each declared this identical set; tokenized here so a page
+   * only overrides one when it genuinely differs.
+   */
+  --btn-font-size: 12px;
+  --btn-font-weight: 400;
+  --btn-line-height: 1.42857143;
+  --btn-border-radius: 6px;
+
+  --color-success-bg: #ecfdf3;
+  --color-success-text: #166534;
+  --color-success-border: #4ade80;
+  --color-warning-bg: #fff8e6;
+  --color-warning-text: #92400e;
+  --color-warning-border: #eab308;
+  --color-danger-bg: #fff1f2;
+  --color-danger-text: #9f1239;
+  --color-danger-border: #fb7185;
+  --color-info-bg: #ecfeff;
+  --color-info-text: #155e75;
+  --color-info-border: #0891b2;
+  --color-neutral-badge-bg: #f1f5f9;
+  --color-neutral-badge-text: #334155;
+  --color-neutral-badge-border: #64748b;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 12px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 20px;
+  --font-size-display: 34px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+
+  --shadow-none: none;
+  --shadow-sm: 0 4px 14px rgba(15, 23, 42, 0.12);
+  --shadow-md: 0 20px 40px rgba(15, 23, 42, 0.12);
+  --shadow-lg: 0 30px 50px rgba(15, 23, 42, 0.2);
+
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 14px;
+  --space-7: 16px;
+  --space-8: 20px;
+  --space-9: 24px;
+  --space-10: 28px;
+  --space-11: 32px;
+
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-nav: 350ms;
+  --ease-standard: ease;
+
+  --z-navdock: 10;
+  /* QAF nav dock widths (keep in sync with body padding-left rules below). */
+  --qaf-navdock-width-collapsed: 40px;
+  --qaf-navdock-width-expanded: 250px;
+  --z-sticky: 2;
+  --z-menu: 1000;
+  --z-modal-overlay: 9999;
+  --z-modal: 10000;
+
+  --breakpoint-sm: 768px;
+  --breakpoint-lg: 1280px;
+
+  --portal-topbar-offset: 0px;
+}
+
+/*
+ * SECTION: CSS Reset and Base Styles
+ * Base browser normalization and global element defaults.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg-canvas);
+}
+
+html,
+body {
+  margin: var(--space-0);
+  min-height: 100%;
+  background: var(--color-bg-canvas);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-base);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  padding-left: var(--qaf-navdock-width-collapsed);
+  transition: padding-left var(--duration-nav) var(--ease-standard);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/*
+ * SECTION: Typography and Heading Styles
+ * Reusable heading, subtitle, and helper text styles.
+ */
+h1,
+.page-title {
+  margin: var(--space-0);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: -0.02em;
+}
+
+h2,
+.section-title {
+  margin: var(--space-0);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.text-muted,
+.table-panel__meta,
+.as-status,
+.load-more-hint,
+.empty-note {
+  color: var(--color-text-muted);
+}
+
+/*
+ * SECTION: Layout and Section Wrappers
+ * Shared wrappers for pages, panels, grids, and content sections.
+ */
+.page-shell,
+.as-page,
+.page,
+.req-page,
+.inventory-page,
+.settings-page,
+.asset-serial-page,
+.permission-page,
+.app {
+  width: 100%;
+  margin: var(--space-0);
+  padding: var(--space-7);
+  background: var(--color-bg-canvas);
+  min-height: calc(100vh - var(--portal-topbar-offset));
+}
+
+/* Short list pages: shell fills the viewport; table card grows so spare height stays on the white panel. */
+.req-page:has(> .table-panel.card),
+.page-shell:has(> .table-panel.card) {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.req-page:has(> .table-panel.card) > .panel.table-panel.card,
+.page-shell:has(> .table-panel.card) > .panel.table-panel.card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel,
+.table-panel,
+.settings-content-card,
+.asset-card,
+.as-card,
+.chart-card,
+.detail-section {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-none);
+}
+
+.stack {
+  display: grid;
+  gap: var(--space-7);
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.table-wrap,
+.asset-table-wrap,
+.settings-table-wrap,
+.allocation-table-wrap,
+.history-log-table-wrap,
+.other-detail-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+}
+
+/* Reusable scrollbar treatments. Add one modifier to any scroll container:
+   thin for native compact scrollbars, or 10px for visible horizontal tables.
+   Both variants share the same thumb and track colors and reveal the thumb on
+   hover while preserving the container's existing overflow behavior. */
+.qaf-scrollbar-thin,
+.qaf-scrollbar-10 {
+  scrollbar-width: thin !important;
+  scrollbar-color: transparent var(--scrollbar-track) !important;
+}
+
+.qaf-scrollbar-10 {
+  scrollbar-width: auto !important;
+}
+
+.qaf-scrollbar-thin:hover,
+.qaf-scrollbar-10:hover {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track) !important;
+}
+
+.qaf-scrollbar-thin::-webkit-scrollbar,
+.qaf-scrollbar-10::-webkit-scrollbar {
+  background: var(--scrollbar-track) !important;
+}
+
+.qaf-scrollbar-thin::-webkit-scrollbar-track,
+.qaf-scrollbar-10::-webkit-scrollbar-track {
+  background: var(--scrollbar-track) !important;
+}
+
+.qaf-scrollbar-thin::-webkit-scrollbar-thumb,
+.qaf-scrollbar-10::-webkit-scrollbar-thumb {
+  background: transparent !important;
+  border-radius: 4px !important;
+}
+
+.qaf-scrollbar-thin:hover::-webkit-scrollbar-thumb,
+.qaf-scrollbar-10:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb) !important;
+}
+
+.qaf-scrollbar-thin:hover::-webkit-scrollbar-thumb:active,
+.qaf-scrollbar-10:hover::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active) !important;
+}
+
+.qaf-scrollbar-thin::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+.qaf-scrollbar-10::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+/*
+ * SECTION: Navigation and Header Bar Styles
+ * Shared top/header rows and QAF nav dock behavior.
+ */
+.qaf-navdock .fa,
+.qaf-navdock .fa::before,
+.back-btn .fa,
+.back-btn .fa::before {
+  font-family: FontAwesome !important;
+}
+
+/* QAF nav dock: flex column avoids clipped/overlapping items when portal topbar height changes. */
+.qaf-navdock,
+aside.qaf-navdock {
+  position: fixed;
+  left: 0 !important;
+  top: 0 !important;
+  bottom: auto !important;
+  width: var(--qaf-navdock-width-collapsed);
+  max-width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background: #FAFAFA;
+  border-right: 1px solid var(--color-border-nav);
+  overflow: hidden;
+  padding-top: 84px;
+  z-index: var(--z-navdock); /* Keeps nav above page content but below modal layers. */
+  transition: width var(--duration-nav) var(--ease-standard);
+}
+
+/* Keep dock pinned to viewport even when portal wrappers apply transforms/margins. */
+body > .qaf-navdock {
+  margin: 0 !important;
+  transform: none !important;
+  background: #FAFAFA;
+}
+
+.qaf-navdock:hover,
+body.qaf-navdock-expanded .qaf-navdock,
+body.qaf-navdock-expanded aside.qaf-navdock {
+  width: var(--qaf-navdock-width-expanded);
+}
+
+body.qaf-navdock-expanded {
+  padding-left: var(--qaf-navdock-width-expanded);
+}
+
+.qaf-navdock-layout-shift {
+  margin-left: var(--space-0);
+  min-width: 0;
+}
+
+.qaf-navdock__arrow-indicator {
+  position: absolute;
+  top: 51px;
+  right: 2px;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: none;
+}
+
+.qaf-navdock__arrow-indicator::before,
+.qaf-navdock__arrow-indicator::after {
+  content: none;
+}
+
+.qaf-navdock__arrow-indicator i {
+  font-size: 26px !important;
+  line-height: 1;
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.qaf-navdock__arrow-indicator:hover {
+  background: transparent;
+  color: var(--color-text-primary);
+}
+
+.qaf-navdock__arrow-indicator:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.qaf-navdock__arrow-indicator:active {
+  background: transparent;
+  color: var(--color-text-primary);
+}
+
+body.qaf-navdock-expanded .qaf-navdock__arrow-indicator i {
+  transform: rotate(180deg);
+}
+
+.qaf-navdock__list {
+  min-height: auto;
+  height: calc(100vh - 88px);
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 0 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.qaf-navdock__item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.qaf-navdock__link {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 10px;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  border: 0;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.qaf-navdock__link.is-active {
+  background: var(--color-primary-soft);
+}
+
+.qaf-navdock__icon {
+  width: 20px;
+  min-width: 20px;
+  text-align: center;
+  font-size: 18px !important;
+  line-height: 1;
+  color: var(--color-text-primary);
+  display: inline-block;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+.qaf-navdock__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text-primary);
+  /* Match asset-details / assetrequisition nav dock labels (14px). */
+  font-size: 14px;
+  font-weight: var(--font-weight-regular);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity var(--duration-base) var(--ease-standard), transform var(--duration-base) var(--ease-standard);
+}
+
+body.qaf-navdock-expanded .qaf-navdock__label,
+body:not(.qaf-navdock-expanded) .qaf-navdock:hover .qaf-navdock__label {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.inventory-header,
+.asset-serial-header,
+.settings-tabs-header,
+.permission-tabs-header,
+.table-panel__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.table-panel__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+  min-width: 0;
+}
+
+/*
+ * SECTION: Button Styles and Variants
+ * Shared action controls for all page-level buttons.
+ */
+
+.btn--dark,
+.btn--primary,
+.as-btn-primary,
+.settings-action-btn--primary,
+.permission-modal__btn--save,
+.add-user-btn,
+.permission-modal__next-btn {
+  background: var(--color-accent-dark);
+  border-color: var(--color-accent-dark);
+  color: var(--color-text-inverse);
+}
+
+.toolbar__icon-btn {
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-height: 30px;
+  border-radius: 5px;
+  box-sizing: border-box;
+  border: 1px solid #afb7c2;
+}
+
+.btn:disabled,
+.as-btn:disabled,
+.permission-modal__next-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/*
+ * SECTION: Card Component Styles
+ * Reusable card containers and card internals.
+ */
+.card,
+.asset-card,
+.as-card,
+.permission-modal__card,
+.settings-content-card,
+.chart-card,
+.vendor-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-none);
+  padding: var(--space-5);
+}
+
+.card-title,
+.asset-card__title,
+.as-card-title,
+.status-cards__title {
+  margin: var(--space-0);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.status-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden; /* Required so card grid borders clip cleanly to rounded corners. */
+}
+
+.status-card {
+  border-right: 1px solid var(--color-border-default);
+  border-bottom: 1px solid var(--color-border-default);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface);
+}
+
+/*
+ * SECTION: Table Styles
+ * Shared table, sort, sticky header, and row-action menu styling.
+ */
+table,
+.asset-table,
+.settings-table,
+.allocation-table,
+.history-log-table,
+.other-detail-table,
+.permission-table {
+  width: max(100%, max-content);
+  min-width: 100%;
+  border-collapse: collapse;
+  background: var(--color-bg-surface);
+  table-layout: auto;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--color-border-default);
+  padding: var(--space-4) var(--space-4);
+  text-align: left;
+  font-size: var(--font-size-md);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  vertical-align: middle;
+  line-height: 1.35;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky); /* Keeps table header above body rows during scroll. */
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+/* ==================================================================
+ * SECTION: Grid Table Runtime (library.js's window.GridTable)
+ * ------------------------------------------------------------------
+ * Everything a sortable/resizable grid needs in order to paint correctly on
+ * the FIRST frame: the fixed layout, the header label's ellipsis, the sort
+ * glyph's reserved band, the column-resize separator, and the body cells'
+ * ellipsis. library.js used to inject all of this at script time, which meant
+ * every grid painted once as an auto-layout table and then snapped to the
+ * fixed layout - the visible render flicker. It now skips its copy while
+ * --qaf-grid-runtime is 1 (see the token block) and keeps it only as a
+ * fallback for a page that loads library.js without this file.
+ *
+ * Nothing here is page-specific. Any table handed to GridTable.create() gets
+ * the whole behavior, so a page never has to restate it - which is what let
+ * Service Dashboard, Team Dashboard, SLA Definition and Asset Inventory each
+ * drift to their own copy of these rules.
+ *
+ * Keep in sync with ensureGridTableStyles() in library.js.
+ * ================================================================== */
+
+table[data-gt-resizable] {
+  table-layout: fixed !important;
+  width: max-content;
+  min-width: 0 !important;
+}
+
+table[data-gt-resizable] th,
+table[data-gt-resizable] td {
+  min-width: 0 !important;
+  box-sizing: border-box;
+}
+
+/*
+ * Body cells: one line, clipped with an ellipsis. Narrowing a column therefore
+ * shortens the text instead of growing the row, and the full value is still
+ * reachable - library.js puts it in a `title` attribute on hover, so the
+ * browser shows its native tooltip.
+ * Opt a single cell out with .no-ellipsis; .row-actions is already excluded
+ * because its popover menu must not be clipped.
+ */
+table[data-gt-resizable] > tbody > tr > td:not(.row-actions):not(.no-ellipsis) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+/*
+ * Header label. This is the rule that keeps the sort glyph off the heading
+ * text: the label reserves --qaf-th-sort-reserve on its right and ellipsizes
+ * its own text, so however narrow the column gets the text stops before the
+ * glyph's band instead of running underneath it. The reserve sits on the label
+ * rather than on the <th> precisely so a page restyling the header's padding
+ * cannot take it away. !important for the same reason - "the glyph never sits
+ * on the heading text" is an invariant of the component, not a default.
+ */
+table th .th-label {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+table th.gt-sortable .th-label,
+table th.is-sortable .th-label {
+  padding-right: var(--qaf-th-sort-reserve) !important;
+}
+
+/*
+ * Sort glyph. Absolutely positioned inside the band the label reserves above,
+ * hidden until the header is hovered/focused or its column is the active sort.
+ * Both class names are matched: .gt-sort-icon is library.js's own, while
+ * .th-sort-icon is what the pages that render their header markup themselves
+ * emit.
+ */
+table th .gt-sort-icon,
+table th .th-sort-icon {
+  position: absolute;
+  right: var(--qaf-th-sort-icon-right);
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--qaf-th-sort-icon-size);
+  height: 12px;
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+table th:hover .gt-sort-icon,
+table th:focus-within .gt-sort-icon,
+table th.is-sorted .gt-sort-icon,
+table th.gt-sorted .gt-sort-icon,
+table th:hover .th-sort-icon,
+table th:focus-within .th-sort-icon,
+table th.is-sorted .th-sort-icon,
+table th.gt-sorted .th-sort-icon {
+  opacity: 1;
+}
+
+/*
+ * Containing block for the absolutely positioned sort glyph and resize handle.
+ * Deliberately the same selector and specificity library.js used to inject, so
+ * the cascade is unchanged: every page that makes its own header row sticky
+ * does it through a class-scoped rule, which still outranks this.
+ */
+table thead th {
+  position: relative;
+}
+
+/*
+ * Column-resize separator ("pipe"). The hit-zone straddles the column boundary
+ * so the grab target is the same width either side of it, and hovering
+ * anywhere on the header row reveals the separator on EVERY column at once -
+ * the whole grid reads as adjustable instead of the user having to hunt for
+ * each boundary. The column actually under the cursor (or mid-drag) gets the
+ * stronger tone. The line that tracks the boundary during the drag itself is
+ * library.js's .gt-resize-line.
+ */
+.gt-col-resizer {
+  position: absolute;
+  top: 0;
+  right: calc(var(--qaf-col-resizer-hit) / -2);
+  width: var(--qaf-col-resizer-hit);
+  height: 100%;
+  z-index: 2;
+  pointer-events: auto;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+/* A second, older affordance some page markup still carries; the ::after
+   below is the only separator ever shown. */
+.gt-col-resizer::before {
+  display: none !important;
+}
+
+.gt-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 50%;
+  width: var(--qaf-col-resizer-width);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: transparent;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+table thead:hover th .gt-col-resizer::after {
+  background: var(--color-border-default);
+}
+
+/* Same specificity as the reveal-all rule above and declared after it, so the
+   boundary actually being pointed at wins. */
+table thead th .gt-col-resizer:hover::after,
+table thead th .gt-col-resizer.is-resizing::after {
+  background: var(--color-border-strong);
+}
+
+.gt-resize-line {
+  position: fixed;
+  top: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  z-index: var(--z-modal-overlay);
+  background: var(--color-border-strong);
+  pointer-events: none;
+}
+
+body.is-column-resizing,
+body.is-column-resizing * {
+  cursor: col-resize !important;
+}
+
+/*
+ * SECTION: First-paint motion guard (qaf-no-motion)
+ *
+ * Every transition and animation is suppressed for the first couple of frames
+ * of a page's life. library.js adds this class as it parses and takes it off
+ * again once the document is ready, so nothing is hidden and nothing depends on
+ * the class ever being removed - if the script never runs, the class is never
+ * added in the first place.
+ *
+ * What it stops: the body's padding-left transition replaying as the nav dock
+ * decides its width, the dock labels fading in, and the assorted opacity/
+ * transform transitions on cards and toolbars all firing at once on load. Each
+ * is a deliberate response to a user action, but on the first frames they run
+ * unprompted and read as the page shuddering into place.
+ *
+ * Deliberately not `visibility: hidden` on anything: a motion guard cannot
+ * leave a page blank the way a veil can. Pages that genuinely need to withhold
+ * their first paint until data has arrived use QafLibrary.holdFirstPaint().
+ */
+html.qaf-no-motion *,
+html.qaf-no-motion *::before,
+html.qaf-no-motion *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+/*
+ * SECTION: Ellipsis Helper (qaf-ellipsis)
+ * Clips overflowing text to one line with an ellipsis. library.js watches
+ * these elements (plus grid header labels and body cells) and, when the text
+ * really is truncated, puts the full value in a plain `title` attribute so the
+ * browser shows its own native tooltip - there is no styled bubble.
+ */
+.qaf-ellipsis {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions {
+  position: relative;
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 0;
+  text-align: center;
+  overflow: visible;
+}
+
+.row-actions-head {
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 0;
+  text-align: center;
+}
+
+.row-actions__toggle {
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * Keep requisition table row height content-driven.
+ * This overrides page-level fallback min-heights.
+ */
+#reqTable tbody td {
+  min-height: 0 !important;
+}
+
+.row-actions__toggle .fa {
+  font-size: var(--font-size-lg);
+}
+
+.row-actions__menu,
+.more-menu {
+  position: fixed;
+  min-width: 126px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  z-index: var(--z-menu); /* Keeps popovers above sticky headers and table content. */
+  padding: var(--space-1) 0;
+}
+
+.row-actions__item {
+  width: 100%;
+  border: 0;
+  background: var(--color-bg-surface);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.row-actions__item:hover,
+.row-actions__item:focus-visible {
+  background: var(--color-bg-subtle);
+}
+
+/*
+ * SECTION: Form and Input Styles
+ * Shared field, label, select, and form grid behavior.
+ */
+label,
+.meta-label,
+.summary-key {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+input,
+select,
+textarea,
+.as-filter-select,
+.inline-cell-input,
+.permission-form-field input,
+.permission-form-field select {
+  width: 100%;
+  /* min-height: 34px; */
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.permission-form-grid,
+.permission-access-grid,
+.controls,
+.as-filter-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+}
+
+/*
+ * SECTION: App Picker (autocomplete)
+ * Shared type-to-filter text input + floating option list, sized to match the
+ * toolbar's Status/Type triggers (30px, 12px font, #d1d5db border, 5px radius)
+ * so it sits flush with them. Defined once here so every consumer renders an
+ * identical control:
+ *   - the "New" workflow-request autocomplete (.qaf-app-picker__*) on Service
+ *     Dashboard and Team Dashboard;
+ *   - the "Assigned To"/"Priority"/"Status"/"Requester" autocompletes in Team
+ *     Dashboard's filter modal (.hmt-filter-select-input +
+ *     .hmt-filter-select-panel + .as-filter-select-option), which are the same
+ *     control with page-specific class names.
+ * The filter modal keeps only what is genuinely its own in
+ * helpdesk-my-ticket.css (the wrap's positioning and its rotating arrow).
+ */
+.qaf-app-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+  min-width: 0;
+  height: 100%;
+}
+
+.qaf-app-picker__input,
+.hmt-filter-modal .hmt-filter-select-input {
+  display: block;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  margin: 0;
+  padding: 0 10px;
+  padding-right: 34px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  background: #ffffff;
+  color: #111827;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: 1.25;
+  box-sizing: border-box;
+  box-shadow: none;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.qaf-app-picker__input::placeholder,
+.hmt-filter-modal .hmt-filter-select-input::placeholder {
+  color: #64748b;
+  font-weight: 300;
+  opacity: 1;
+}
+
+.qaf-app-picker__input:hover,
+.qaf-app-picker__input:focus,
+.qaf-app-picker__input:focus-visible,
+.hmt-filter-modal .hmt-filter-select-wrap.is-open .hmt-filter-select-input,
+.hmt-filter-modal .hmt-filter-select-input:hover,
+.hmt-filter-modal .hmt-filter-select-input:focus,
+.hmt-filter-modal .hmt-filter-select-input:focus-visible {
+  border-color: #9ca3af;
+  outline: none;
+}
+
+/* Reads as clickable until the user commits to typing, then switches to the
+   standard text-entry cursor. */
+.qaf-app-picker__input:focus,
+.qaf-app-picker__input:focus-visible,
+.hmt-filter-modal .hmt-filter-select-input:focus,
+.hmt-filter-modal .hmt-filter-select-input:focus-visible {
+  cursor: text;
+}
+
+/*
+ * Shared down-arrow glyph: the single source for how every dropdown/
+ * autocomplete arrow looks (icon, size, color) across Service Dashboard and
+ * Team Dashboard - "New", Status, Type and the filter modal's dropdowns all
+ * apply this class so they stay visually identical. Always pair it with
+ * <i class="fa fa-angle-down"> rather than drawing a chevron from borders,
+ * which renders at a different weight and size.
+ * Positioning is left to each host component, since that depends on its own
+ * layout: use the .qaf-arrow-icon--overlay modifier below for an absolute
+ * overlay on a bare <input>, or place it as a normal flex child inside a
+ * <button> trigger.
+ */
+.qaf-arrow-icon {
+  font-size: 14px;
+  line-height: 1;
+  color: #6b7280;
+  pointer-events: none;
+  transition: transform 0.15s ease;
+}
+
+/*
+ * Overlay placement for the arrow glyph on input-based dropdowns, where the
+ * input owns the field box and the arrow floats over its right-hand padding.
+ * Reusable anywhere: put .qaf-arrow-icon--overlay alongside .qaf-arrow-icon on
+ * the <i>, inside a position:relative wrapper, as a sibling that follows the
+ * combobox input. It then flips automatically whenever that input is
+ * aria-expanded="true" - no per-page arrow rule needed.
+ */
+.qaf-app-picker__arrow,
+.qaf-arrow-icon--overlay {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  flex: 0 0 auto;
+}
+
+.qaf-app-picker__input[aria-expanded="true"] ~ .qaf-app-picker__arrow,
+[aria-expanded="true"] ~ .qaf-arrow-icon--overlay {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.qaf-app-picker__list,
+.hmt-filter-modal .hmt-filter-select-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 800;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  background: #ffffff;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  max-height: 202px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: transparent var(--scrollbar-track);
+}
+
+.qaf-app-picker__list:hover,
+.hmt-filter-modal .hmt-filter-select-panel:hover,
+.hmt-filter-modal .hmt-filter-select-wrap.is-open:hover .hmt-filter-select-panel {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.qaf-app-picker__list::-webkit-scrollbar,
+.hmt-filter-modal .hmt-filter-select-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.qaf-app-picker__list::-webkit-scrollbar-track,
+.hmt-filter-modal .hmt-filter-select-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.qaf-app-picker__list::-webkit-scrollbar-thumb,
+.hmt-filter-modal .hmt-filter-select-panel::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 4px;
+}
+
+.qaf-app-picker__list:hover::-webkit-scrollbar-thumb,
+.hmt-filter-modal .hmt-filter-select-panel:hover::-webkit-scrollbar-thumb,
+.hmt-filter-modal .hmt-filter-select-wrap.is-open:hover .hmt-filter-select-panel::-webkit-scrollbar-thumb {
+  background-color: #b8b8b8;
+}
+
+.qaf-app-picker__list[hidden],
+.hmt-filter-modal .hmt-filter-select-panel[hidden] {
+  display: none;
+}
+
+/* Portaled state (list moved to <body> by QafLibrary.Dropdown.createPortal so
+   no ancestor overflow/stacking context can clip it) - same look, fixed
+   position instead of absolute. */
+.qaf-app-picker__list.qaf-dd-menu--portal {
+  position: fixed;
+  top: auto;
+  left: auto;
+  right: auto;
+}
+
+.qaf-app-picker__option,
+.hmt-filter-modal .hmt-filter-select-panel .as-filter-select-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: #374151;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.qaf-app-picker__option:hover,
+.qaf-app-picker__option.is-active,
+.hmt-filter-modal .hmt-filter-select-panel .as-filter-select-option:hover,
+.hmt-filter-modal .hmt-filter-select-panel .as-filter-select-option:focus-visible,
+.hmt-filter-modal .hmt-filter-select-panel .as-filter-select-option.is-active {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.hmt-filter-modal .hmt-filter-select-panel .as-filter-select-option.is-selected {
+  background: #f9fafb;
+  color: #111827;
+}
+
+.qaf-app-picker__empty,
+.hmt-filter-modal .hmt-filter-select-panel .as-filter-select-empty {
+  margin: 0;
+  padding: 9px 14px;
+  color: #6b7280;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/*
+ * Toolbar filter-dropdown font-size (Status/Type on Service Dashboard and
+ * Team Dashboard). Each page builds its own dropdown markup, but the size is
+ * declared once here via the shared classes so it stays reusable/consistent
+ * across both.
+ */
+.servdash-select-trigger,
+.servdash-select-option,
+.hmt-toolbar-select__trigger,
+.hmt-toolbar-select__label,
+.hmt-autocomplete__option {
+  font-size: var(--font-size-sm);
+}
+
+/*
+ * Placeholder-state text (the unselected "Status"/"All Types" label) matches
+ * the New autocomplete field's placeholder exactly - same color/weight as
+ * .qaf-app-picker__input::placeholder above - so both read as the same font
+ * on Service Dashboard and Team Dashboard.
+ */
+.servdash-custom-select:not(.has-value) .servdash-select-trigger__label,
+.hmt-toolbar-select__label--placeholder {
+  color: #64748b;
+  font-weight: 300;
+}
+
+/*
+ * Toolbar filter-dropdown box styling (Status/Type trigger, its dropdown
+ * list, and its options) - the visual box both pages already matched by
+ * hand-copying rule for rule, now declared once. Page-specific files keep
+ * only what's genuinely different between the two (Service Dashboard's
+ * trigger is a <div role="button">; Team Dashboard's is a native <button>
+ * that needs its own reset/!important overrides, and the two use different
+ * open/close arrow mechanics).
+ */
+.servdash-select-trigger,
+.hmt-toolbar-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  background: #fff;
+  color: #4b5563;
+  font-family: inherit;
+  font-weight: 400;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.servdash-select-trigger:hover,
+.servdash-select-trigger:focus-visible,
+.hmt-toolbar-select__trigger:hover,
+.hmt-toolbar-select__trigger:focus-visible {
+  border-color: #9ca3af;
+  outline: none;
+}
+
+.servdash-select-trigger__label,
+.hmt-toolbar-select__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+/* The 18x18 "clear selection" variant shared by both toolbar dropdowns
+   (distinct from the 24x24 base .hmt-field-clear used elsewhere on Team
+   Dashboard). */
+.servdash-select-clear,
+.hmt-toolbar-panel .hmt-toolbar__status .hmt-field-clear,
+.hmt-toolbar-panel .hmt-toolbar__type .hmt-field-clear,
+.hmt-toolbar-panel .hmt-toolbar__status .hmt-filter-close.hmt-field-clear,
+.hmt-toolbar-panel .hmt-toolbar__type .hmt-filter-close.hmt-field-clear {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.servdash-select-clear:hover,
+.servdash-select-clear:focus-visible,
+.hmt-toolbar-panel .hmt-toolbar__status .hmt-field-clear:hover,
+.hmt-toolbar-panel .hmt-toolbar__type .hmt-field-clear:hover,
+.hmt-toolbar-panel .hmt-toolbar__status .hmt-field-clear:focus-visible,
+.hmt-toolbar-panel .hmt-toolbar__type .hmt-field-clear:focus-visible,
+.hmt-toolbar-panel .hmt-toolbar__status .hmt-filter-close.hmt-field-clear:hover,
+.hmt-toolbar-panel .hmt-toolbar__type .hmt-filter-close.hmt-field-clear:hover,
+.hmt-toolbar-panel .hmt-toolbar__status .hmt-filter-close.hmt-field-clear:focus-visible,
+.hmt-toolbar-panel .hmt-toolbar__type .hmt-filter-close.hmt-field-clear:focus-visible {
+  color: #111827;
+  background: #f3f4f6;
+  outline: none;
+}
+
+/* Dropdown list box (border/shadow/scroll behavior) - z-index and exact
+   position are set per page below, since they sit in different stacking
+   contexts. */
+.servdash-select-menu,
+.hmt-toolbar-panel .hmt-autocomplete__list,
+.hmt-autocomplete__list--portal {
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  max-height: 202px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: transparent var(--scrollbar-track);
+  box-sizing: border-box;
+}
+
+.servdash-select-menu:hover,
+.servdash-custom-select.is-open:hover .servdash-select-menu,
+.hmt-toolbar-panel .hmt-autocomplete__list:hover,
+.hmt-autocomplete__list--portal:hover {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.servdash-select-menu::-webkit-scrollbar,
+.hmt-toolbar-panel .hmt-autocomplete__list::-webkit-scrollbar,
+.hmt-autocomplete__list--portal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.servdash-select-menu::-webkit-scrollbar-track,
+.hmt-toolbar-panel .hmt-autocomplete__list::-webkit-scrollbar-track,
+.hmt-autocomplete__list--portal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.servdash-select-menu::-webkit-scrollbar-thumb,
+.hmt-toolbar-panel .hmt-autocomplete__list::-webkit-scrollbar-thumb,
+.hmt-autocomplete__list--portal::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 4px;
+}
+
+.servdash-select-menu:hover::-webkit-scrollbar-thumb,
+.servdash-custom-select.is-open:hover .servdash-select-menu::-webkit-scrollbar-thumb,
+.hmt-toolbar-panel .hmt-autocomplete__list:hover::-webkit-scrollbar-thumb,
+.hmt-autocomplete__list--portal:hover::-webkit-scrollbar-thumb {
+  background-color: #b8b8b8;
+}
+
+.servdash-select-option,
+.hmt-toolbar-panel .hmt-autocomplete__option,
+.hmt-autocomplete__list--portal .hmt-autocomplete__option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: #374151;
+  font-family: inherit;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.servdash-select-option:hover,
+.servdash-select-option:focus-visible,
+.hmt-toolbar-panel .hmt-autocomplete__option:hover,
+.hmt-toolbar-panel .hmt-autocomplete__option.is-active,
+.hmt-autocomplete__list--portal .hmt-autocomplete__option:hover,
+.hmt-autocomplete__list--portal .hmt-autocomplete__option.is-active {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.servdash-select-option.is-selected,
+.hmt-toolbar-panel .hmt-autocomplete__option.is-selected,
+.hmt-autocomplete__list--portal .hmt-autocomplete__option.is-selected {
+  background: #f9fafb;
+  color: #111827;
+}
+
+/*
+ * SECTION: Combobox (permission-combobox)
+ *
+ * The type-to-filter field with a floating option list, used by the Permission
+ * page's form fields and by SLA Definition's Add-SLA / Schedule / Condition
+ * dialogs. Both pages had their own full copy of it - Permission had two, one
+ * of them entirely shadowed by the other - and they had drifted on border
+ * colour, panel height and option padding. Declared once here, sized and
+ * coloured to agree with the toolbar dropdowns and the app picker above so
+ * every dropdown in the app reads as the same control.
+ *
+ * Markup:
+ *   <div class="permission-combobox">
+ *     <input type="text" role="combobox" aria-expanded="false">
+ *     <span class="permission-combobox__clear" data-combo-clear>&times;</span>
+ *     <div class="permission-combobox__panel" role="listbox" hidden></div>
+ *   </div>
+ *
+ * Pair the arrow with .qaf-arrow-icon + .qaf-arrow-icon--overlay, which already
+ * flips itself on aria-expanded. A page keeps only its genuine deltas - a
+ * stacking context inside a modal, a narrower width, an offset clear button.
+ */
+.permission-combobox {
+  position: relative;
+}
+
+.permission-combobox input[type="text"] {
+  display: block;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.25;
+  box-sizing: border-box;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/*
+ * Right-hand gutter, reserved only where something actually sits in it. A bare
+ * combobox (Permission's form fields) keeps its full text width; one with an
+ * arrow or a clear button (SLA Definition's) makes room. Reserving it
+ * unconditionally cost every plain field 16px of usable width.
+ */
+.permission-combobox:has(> .qaf-arrow-icon) input[type="text"],
+.permission-combobox:has(> .permission-combobox__clear) input[type="text"] {
+  padding-right: 26px;
+}
+
+/* A readonly combobox is still a chooser, so it must not read as disabled. */
+.permission-combobox input[type="text"][readonly] {
+  cursor: pointer;
+  background: var(--color-bg-surface);
+}
+
+.permission-combobox input[type="text"]::placeholder {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-regular);
+  opacity: 1;
+}
+
+.permission-combobox input[type="text"]:hover,
+.permission-combobox input[type="text"]:focus,
+.permission-combobox input[type="text"]:focus-visible {
+  border-color: #9ca3af;
+  outline: none;
+  box-shadow: none;
+}
+
+.permission-combobox__clear {
+  display: none;
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  padding: var(--space-0);
+  margin: var(--space-0);
+  border: 0;
+  background: none;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: var(--font-weight-regular);
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Shown only once the field holds a value. */
+.permission-combobox input:not(:placeholder-shown) + .permission-combobox__clear,
+.permission-combobox input:not([placeholder]) + .permission-combobox__clear {
+  display: block;
+}
+
+.permission-combobox__panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: var(--z-menu);
+  max-height: 220px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  background: var(--color-bg-surface);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+}
+
+.permission-combobox__panel[hidden] {
+  display: none !important;
+}
+
+.permission-combobox__option {
+  display: block;
+  width: 100%;
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  background: var(--color-bg-surface);
+  color: #374151;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.permission-combobox__option:hover,
+.permission-combobox__option:focus-visible,
+.permission-combobox__option.is-selected {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.permission-combobox__empty {
+  margin: var(--space-0);
+  padding: var(--space-3) var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/*
+ * SECTION: Badge and Tag Styles
+ * Reusable status pills and semantic variants.
+ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-neutral-badge-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-bg-muted);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+/* No leading status dot - the pill background alone carries the status. */
+.badge::before,
+.badge::after {
+  content: none;
+  display: none;
+}
+
+.badge--allocated {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+.badge--in-store {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
+}
+
+.badge--in-repair {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
+}
+
+.badge--send-for-disposal {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+}
+
+.badge--other {
+  background: var(--color-info-bg);
+  border-color: var(--color-info-border);
+}
+
+/*
+ * SECTION: Spacing Utility Classes
+ * Lightweight reusable spacing primitives for quick composition.
+ */
+.mt-3 { margin-top: var(--space-4); }
+.p-4 { padding: var(--space-5); }
+
+/*
+ * SECTION: Responsive and Media Query Overrides
+ * Mobile-first defaults are defined above; this section enhances tablet+desktop.
+ * Target widths: 375px base, 768px tablet, 1280px desktop.
+ */
+@media (min-width: 768px) {
+  .permission-form-grid,
+  .permission-access-grid,
+  .controls,
+  .as-filter-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .asset-grid,
+  .as-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-7);
+  }
+}
+
+@media (min-width: 1280px) {
+  .as-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/*
+ * SECTION: Miscellaneous Utilities
+ * Generic behavior helpers and low-level utility classes.
+ */
+.is-view-hidden,
+.asset-tab-card[hidden] {
+  display: none !important;
+}
+
+.is-active {
+  font-weight: var(--font-weight-medium);
+}
+
+.link,
+.serial-link,
+.settings-attachment-link {
+  color: #009ce7;
+  text-decoration: none;
+}
+
+/*
+ * "Reason for Requirement" and similar grid links: blue, no underline (all states).
+ * Use class `reason-link` on the anchor or button styled as a link.
+ */
+.reason-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: inherit;
+}
+
+.link:hover,
+.serial-link:hover,
+.settings-attachment-link:hover {
+  text-decoration: none;
+}
+
+.reason-link:hover {
+  color: #009ce7;
+  text-decoration: none;
+}
+
+.reason-link:focus,
+.reason-link:focus-visible,
+.reason-link:active,
+.reason-link:visited {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.reason-link:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.error,
+.error-box {
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-5);
+}
+
+/*
+ * SECTION: Additional Components (Tabs, Modals, Drawers)
+ * Extra reusable patterns found in audit that do not fit core sections.
+ */
+.asset-tabs,
+.settings-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border-strong);
+  overflow-x: auto;
+}
+
+.as-filter-modal-overlay,
+.permission-modal,
+.permission-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-overlay);
+  background: var(--color-bg-overlay);
+}
+
+.as-filter-modal,
+.permission-modal__panel,
+.permission-drawer__panel {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+/*
+ * Portaled dropdown list. The one piece of the former qaf-dd-* component that
+ * is actually in use: QafLibrary.Dropdown.createPortal moves an open list to
+ * <body> so no ancestor's overflow or stacking context can clip it, and adds
+ * this class to switch it from absolute to viewport positioning. The rest of
+ * that component (trigger/label/arrow/clear/menu/option) had no consumer - the
+ * two toolbar dropdowns and the app picker each have their own markup and are
+ * styled by the shared rules above - so it was removed.
+ */
+.qaf-dd-menu--portal {
+  position: fixed;
+}
+
+/*
+ * SECTION: Reusable Search Bar (qaf-search)
+ * Pair with QafLibrary.bindSearchClear (library.js) for clear-button
+ * show/hide + clear behavior.
+ */
+.qaf-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 5px;
+  background: var(--color-bg-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  padding: 0 34px 0 12px;
+  box-sizing: border-box;
+}
+
+.qaf-search__icon {
+  flex: 0 0 auto;
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+/* Keep the magnifier glyph rendering even where a page font overrides .fa. */
+.qaf-search__icon.fa,
+.qaf-search__icon.fa::before {
+  font-family: FontAwesome !important;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+.qaf-search__field {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 300;
+  color: var(--color-text-secondary);
+}
+
+.qaf-search__field::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.qaf-search__field:focus {
+  outline: none;
+  border-color: transparent;
+}
+
+.qaf-search__clear {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qaf-search__clear:hover,
+.qaf-search__clear:focus-visible {
+  color: var(--color-text-primary);
+  background: var(--color-bg-muted);
+}
+
+.qaf-search__clear[hidden] {
+  display: none !important;
+}
+
+/*
+ * Clear (x) visibility, convention B: pages whose script toggles a `visible`
+ * class on the button instead of the [hidden] attribute. Add this modifier
+ * next to .qaf-search__clear so the button starts hidden and shows on input.
+ */
+.qaf-search__clear--toggle {
+  display: none;
+}
+
+.qaf-search__clear--toggle.visible {
+  display: inline-flex;
+}
+
+/*
+ * SECTION: CS_SETTING Theme Buttons (qaf-cs-theme-btn)
+ *
+ * The tenant-themed button component. QafLibrary.applyCsSettingTheme() reads
+ * the tenant's colors out of the CS_SETTING entry in localStorage, publishes
+ * them as --ButtonBackGroundColor / --ButtonTextColor on the host element and
+ * stamps .qaf-cs-theme-host on it; every themed button inside then inherits the
+ * pair. Markup:
+ *
+ *   <button class="qaf-btn qaf-cs-theme-btn qaf-cs-theme-btn--primary">Save</button>
+ *
+ * The base box and both colour variants were being restated in a dozen page
+ * stylesheets - three of them a verbatim copy of this block, including the
+ * --btn-* tokens it reads (which now live in the token block above, so a page
+ * no longer has to redeclare them for the size to resolve). Declared once here
+ * at (0,2,0), so a page's own rule for a specific button still wins and only
+ * has to state what genuinely differs.
+ *
+ * Deliberately NOT declared here: height and corner radius. Those belong to
+ * .qaf-btn, which every themed button in the app already carries, and
+ * restating them at this component's higher specificity would silently
+ * override it.
+ *
+ * The fallbacks are the untenanted look: dark-on-white primary, plain
+ * secondary. They apply verbatim when no CS_SETTING theme is stored, so a
+ * tenant with no theme sees exactly what it saw before.
+ */
+.qaf-cs-theme-host .qaf-cs-theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--btn-font-size);
+  font-weight: var(--btn-font-weight);
+  line-height: var(--btn-line-height);
+  cursor: pointer;
+  box-shadow: none;
+  outline: none;
+  transition: none;
+}
+
+.qaf-cs-theme-host .qaf-cs-theme-btn--primary,
+.qaf-cs-theme-host .qaf-cs-theme-btn--primary:hover,
+.qaf-cs-theme-host .qaf-cs-theme-btn--primary:focus,
+.qaf-cs-theme-host .qaf-cs-theme-btn--primary:focus-visible,
+.qaf-cs-theme-host .qaf-cs-theme-btn--primary:active {
+  background: var(--ButtonBackGroundColor, var(--color-accent-dark));
+  background-color: var(--ButtonBackGroundColor, var(--color-accent-dark));
+  border-color: var(--ButtonBackGroundColor, var(--color-accent-dark));
+  color: var(--ButtonTextColor, var(--color-text-inverse));
+  font-weight: var(--font-weight-regular);
+  box-shadow: none;
+  outline: none;
+  transform: none;
+  opacity: 1;
+}
+
+.qaf-cs-theme-host .qaf-cs-theme-btn--secondary,
+.qaf-cs-theme-host .qaf-cs-theme-btn--secondary:hover,
+.qaf-cs-theme-host .qaf-cs-theme-btn--secondary:focus,
+.qaf-cs-theme-host .qaf-cs-theme-btn--secondary:focus-visible,
+.qaf-cs-theme-host .qaf-cs-theme-btn--secondary:active {
+  background: var(--ButtonBackGroundColor, var(--color-bg-surface));
+  background-color: var(--ButtonBackGroundColor, var(--color-bg-surface));
+  border-color: var(--color-border-strong);
+  color: var(--ButtonTextColor, var(--color-text-secondary));
+  font-weight: var(--font-weight-regular);
+  box-shadow: none;
+  outline: none;
+  transform: none;
+  opacity: 1;
+}
+
+/* Glyphs follow the button, so a themed pairing is never half-applied. Size is
+   left alone - several pages set their own. */
+.qaf-cs-theme-host .qaf-cs-theme-btn .fa,
+.qaf-cs-theme-host .qaf-cs-theme-btn i,
+.qaf-cs-theme-host .qaf-cs-theme-btn svg {
+  color: inherit;
+  stroke: currentColor;
+}
+
+.qaf-cs-theme-host .qaf-cs-theme-btn:disabled,
+.qaf-cs-theme-host .qaf-cs-theme-btn:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/*
+ * SECTION: Reusable Buttons (qaf-btn)
+ * Additive component: apply alongside existing button classes. Preserves
+ * each page's current button colors/appearance while standardizing on a
+ * 30px height and 5px radius. Use qaf-btn--square only for icon-only
+ * buttons that are meant to be square (30x30).
+ */
+.qaf-btn {
+  height: 30px;
+  min-height: 30px;
+  border-radius: 5px;
+  box-sizing: border-box;
+  border: 1px solid #afb7c2;
+}
+
+.qaf-btn--square {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #afb7c2;
+}
+
+/*
+ * One icon size for every square icon button, app-wide. These buttons are a
+ * fixed 30x30 box whose entire content is a single glyph, so the glyph size is
+ * a property of the component, not of the page that happens to host it - the
+ * pages were each declaring their own 12px and drifting apart. Tokenized so it
+ * stays a one-line change here.
+ *
+ * Scoped to glyph elements only. SVG icons in square buttons (the contracts
+ * drawer close, for one) size themselves from their own width/height
+ * attributes and are deliberately left alone - font-size would do nothing for
+ * them anyway.
+ */
+.qaf-btn--square .fa,
+.qaf-btn--square .fa::before,
+.qaf-btn--square > i {
+  font-size: var(--qaf-btn-square-icon-size, 14px);
+  line-height: 1;
+}
+
+/*
+ * SECTION: Reusable Square Button - Inverse CS_SETTING Theme
+ * (qaf-btn--square-inverse)
+ *
+ * The inverse of the normal CS_SETTING button treatment. Normally the tenant's
+ * ButtonBackGroundColor fills the button and ButtonTextColor paints the glyph;
+ * here the two swap roles:
+ *
+ *   background-color  <- --ButtonTextColor
+ *   color (icon/text) <- --ButtonBackGroundColor
+ *   border-color      <- --ButtonBackGroundColor
+ *
+ * Deliberately gated behind the qaf-btn--square-inverse modifier and required
+ * to sit next to .qaf-btn--square: square icon buttons are the only shape this
+ * is meant for, and the existing .qaf-btn--square consumers (settings action
+ * buttons, the contracts drawer close, the serial-details edit button) keep
+ * their current look because they never opt in. Nothing outside these two
+ * classes together is touched.
+ *
+ * The variables are supplied by QafLibrary.applySquareButtonInverseTheme(),
+ * which reads CS_SETTING and sets them on whichever host element you pass; every
+ * .qaf-btn--square-inverse inside that host inherits the pair. The fallbacks
+ * below are the plain black-on-white pairing, so the buttons still render
+ * correctly when no tenant theme is stored.
+ */
+.qaf-btn--square.qaf-btn--square-inverse,
+.qaf-btn--square.qaf-btn--square-inverse:hover,
+.qaf-btn--square.qaf-btn--square-inverse:focus,
+.qaf-btn--square.qaf-btn--square-inverse:focus-visible {
+  color: var(--ButtonBackGroundColor, #000000);
+  background-color: var(--ButtonTextColor, #ffffff);
+  border: 1px solid var(--ButtonBackGroundColor, #000000);
+  background-image: none;
+  box-shadow: none;
+}
+
+/* Font Awesome glyphs carry their own color on several pages; make them follow
+   the button so the inverse pairing is not half-applied. */
+.qaf-btn--square.qaf-btn--square-inverse .fa,
+.qaf-btn--square.qaf-btn--square-inverse .fa::before,
+.qaf-btn--square.qaf-btn--square-inverse svg {
+  color: inherit;
+  fill: currentColor;
+}
+
+/*
+ * Selected state (the table-view / grid-view pair, where exactly one of the two
+ * is the current view). Driven by the same is-active class the pages already
+ * toggle, so no script change is needed beyond opting into the modifier. This
+ * one state steps out of the CS_SETTING pair on purpose: it has to read as
+ * "chosen" against whatever the tenant colors happen to be, so it uses the
+ * fixed light-blue tokens above - light blue glyph on a lighter blue fill.
+ */
+.qaf-btn--square.qaf-btn--square-inverse.is-active,
+.qaf-btn--square.qaf-btn--square-inverse.is-active:hover,
+.qaf-btn--square.qaf-btn--square-inverse.is-active:focus,
+.qaf-btn--square.qaf-btn--square-inverse.is-active:focus-visible,
+.qaf-btn--square.qaf-btn--square-inverse[aria-pressed="true"] {
+  color: var(--qaf-square-active-fg, #60a5fa);
+  background-color: var(--qaf-square-active-bg, #eff6ff);
+  border: 1px solid var(--qaf-square-active-border, #93c5fd);
+}
+
+.qaf-btn--square.qaf-btn--square-inverse.is-active .fa,
+.qaf-btn--square.qaf-btn--square-inverse.is-active .fa::before,
+.qaf-btn--square.qaf-btn--square-inverse[aria-pressed="true"] .fa,
+.qaf-btn--square.qaf-btn--square-inverse[aria-pressed="true"] .fa::before {
+  color: inherit;
+}
+
+.qaf-btn--square.qaf-btn--square-inverse:disabled,
+.qaf-btn--square.qaf-btn--square-inverse[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/*
+ * SECTION: Reusable Checkbox (qaf-checkbox)
+ * The native <input> is layered on top of the visible box but made fully
+ * transparent (opacity: 0, not display/visibility hidden) so it stays
+ * focusable/clickable/announced to assistive tech while nothing native ever
+ * paints on screen. The visible box + checkmark is a plain sibling <span>
+ * styled entirely by this component, with no transition/animation declared
+ * anywhere - so the browser/OS can never apply its own native checked-state
+ * paint or "pop" animation to it; checking it is always an instant snap.
+ * Markup: <span class="qaf-checkbox-wrap">
+ *           <input type="checkbox" class="qaf-checkbox">
+ *           <span class="qaf-checkbox-box" aria-hidden="true"></span>
+ *         </span>
+ */
+.qaf-checkbox-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.qaf-checkbox {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.qaf-checkbox-box {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  border: 1px solid #888;
+  border-radius: 3px;
+  background: var(--color-bg-surface);
+  position: relative;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.qaf-checkbox:checked ~ .qaf-checkbox-box {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.qaf-checkbox:checked ~ .qaf-checkbox-box::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 3px;
+  height: 7px;
+  border: solid var(--color-text-inverse);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.qaf-checkbox:focus-visible ~ .qaf-checkbox-box {
+  outline: 2px solid var(--color-primary-soft);
+  outline-offset: 1px;
+}
+
+.qaf-checkbox:disabled ~ .qaf-checkbox-box {
+  opacity: 0.5;
+}
+
+.qaf-checkbox:disabled {
+  cursor: not-allowed;
+}
+.page-title {
+    color: black !important;
+}

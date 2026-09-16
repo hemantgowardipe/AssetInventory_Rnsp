@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asset Inventory</title>
+
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400&display=swap" />
+  <link rel="stylesheet" href="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Fassetinventory_c2b69b3e-4580-45c1-bb9c-95a3c188111b.css" />
+  <link rel="stylesheet" href="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Fglobal_edb3194d-a971-49ef-b782-36f2611748b6.css" />
+</head>
+
+<body>
+  <div id="assetInventoryAppHost">
+    <nav class="qaf-navdock" aria-label="Application menu"> <button id="qafNavToggle" type="button"
+        class="qaf-navdock__arrow-indicator" aria-label="Pin or expand sidebar" title="Pin or expand sidebar" aria-expanded="false"> <i
+          class="fa fa-angle-right" aria-hidden="true"></i> </button>
+      <div id="qafNavdockList" class="qaf-navdock__list"></div>
+    </nav>
+    <main class="inventory-page qaf-navdock-layout-shift" aria-busy="true">
+      <header class="inventory-header">
+        <h1>Asset Inventory</h1>
+        <div class="toolbar">
+          <!-- Type filter: .qaf-app-picker* comes from global.css (the shared
+               dropdown control) and its open/close/portal behavior from
+               library.js (QafLibrary.Dropdown). inven-type-picker is a width
+               hook only, it carries no other styling. -->
+          <div class="toolbar__field">
+            <div class="qaf-app-picker inven-type-picker"> <input id="typeFilter" class="qaf-app-picker__input"
+                type="text" role="combobox" aria-label="Filter by asset type" aria-expanded="false"
+                aria-autocomplete="list" aria-controls="typeFilterList" placeholder="All Types" autocomplete="off" />
+              <i class="fa fa-angle-down qaf-arrow-icon qaf-arrow-icon--overlay" aria-hidden="true"></i>
+              <ul id="typeFilterList" class="qaf-app-picker__list inven-type-picker__list" role="listbox"
+                aria-label="Asset types" hidden></ul>
+            </div>
+          </div>
+          <!-- All three share one class set so they render identically: the 30x30
+               shape comes from .qaf-btn / .qaf-btn--square in global.css, and the
+               colors from .qaf-btn--square-inverse there - the inverse CS_SETTING
+               pairing, where ButtonBackGroundColor paints the border and the icon
+               and ButtonTextColor fills the button. The variables are published
+               onto the app host by QafLibrary.applySquareButtonInverseTheme().
+               qaf-cs-theme-btn--primary/--secondary are kept only because other
+               pages key off them; they no longer drive these three colors. -->
+          <div class="toolbar__actions" aria-label="View actions"> <button id="tableViewBtn" type="button"
+              class="toolbar__icon-btn qaf-btn qaf-btn--square qaf-btn--square-inverse qaf-cs-theme-btn qaf-cs-theme-btn--primary" aria-label="Table view" title="Table view" aria-pressed="false"><i
+                class="fa fa-table" aria-hidden="true"></i></button> <button id="gridViewBtn" type="button"
+              class="toolbar__icon-btn qaf-btn qaf-btn--square qaf-btn--square-inverse qaf-cs-theme-btn qaf-cs-theme-btn--primary" aria-label="Grid view" title="Card view" aria-pressed="false"><i class="fa fa-th"
+                aria-hidden="true"></i></button> <button id="exportSummaryBtn" type="button"
+              class="toolbar__icon-btn qaf-btn qaf-btn--square qaf-btn--square-inverse qaf-cs-theme-btn qaf-cs-theme-btn--secondary"
+              aria-label="Export excel" title="Export excel"><i class="fa fa-download" aria-hidden="true"></i></button>
+            <!-- Funnel Filter trigger: same button treatment (global.css) and
+                 modal/dropdown behavior as Asset Search's #filterToggleBtn
+                 (search.js/search.css), reimplemented here against this
+                 page's own data. -->
+            <button id="filterToggleBtn" type="button"
+              class="toolbar__icon-btn qaf-btn qaf-btn--square qaf-btn--square-inverse qaf-cs-theme-btn qaf-cs-theme-btn--icon"
+              aria-expanded="false" aria-label="Filter assets" title="Filter assets"><i class="fa fa-filter" aria-hidden="true"></i></button> </div>
+        </div>
+      </header>
+      <section id="errorBox" class="error-box" hidden></section>
+      <section id="assetGrid" class="asset-grid" aria-live="polite"></section>
+      <section id="assetTableView" class="asset-table-view" aria-live="polite" hidden></section>
+    </main>
+  </div>
+  <div id="filterModalOverlay" class="as-filter-modal-overlay" hidden>
+    <aside id="filterModal" class="as-filter-modal" role="dialog" aria-modal="true" aria-labelledby="filterTitle">
+      <header class="as-filter-modal-header">
+        <h2 id="filterTitle" class="asset-filter-title">Asset Filter</h2> <button id="filterCloseBtn"
+          class="as-filter-close asset-close-icon close-icon modal-close" type="button"
+          aria-label="Close filters">&times;</button>
+      </header>
+      <div id="filterFields" class="as-filter-fields"></div>
+      <footer class="as-filter-modal-footer"> <button id="clearFiltersBtn"
+          class="qaf-btn qaf-cs-theme-btn qaf-cs-theme-btn--secondary" type="button">Clear</button> <button
+          id="applyFiltersBtn" class="qaf-btn qaf-cs-theme-btn qaf-cs-theme-btn--primary" type="button">Apply
+          Filters</button> </footer>
+    </aside>
+  </div>
+</script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2FAsset_nav_dock_46136077-c888-4214-b8c0-cfe1e4abae4b.js"></script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Fbundle_f392a350-250e-484e-a55d-786f246997bc.js"></script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Fassetinventory_c449015d-a43f-475f-985c-57c0d92bd89b.js"></script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Flibrary_c117438d-8045-4d9a-bf88-94f4d9d47992.js"></script>
+</body>
+
+</html>

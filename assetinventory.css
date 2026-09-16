@@ -1,0 +1,971 @@
+/*
+ * Asset Inventory - page-specific styles only.
+ *
+ * The shared look and behavior are linked in from the app-wide files, so nothing
+ * here restates them:
+ *   - global.css: the design tokens, the page shell (.inventory-page,
+ *     .inventory-header, .asset-table-wrap), the nav dock, base table/th/td and
+ *     sort-icon styling, and the .qaf-app-picker* dropdown used by the type filter.
+ *   - library.js: GridTable, which owns the table's sorting, its column resizing
+ *     (.gt-col-resizer plus the vertical .gt-resize-line drawn while dragging)
+ *     and the remembered column widths.
+ */
+#assetInventoryAppHost {
+  --paper: var(--color-bg-surface);
+  --ink: #12141a;
+  --subtle: #5c6370;
+  --line: var(--color-border-strong);
+  --muted-fill: var(--color-bg-surface);
+  --error-line: #c47a7a;
+  --error-fill: #faf6f6;
+  --error-ink: #6b2e2e;
+  --radius: var(--radius-lg);
+  --space-xs: 6px;
+  --space-sm: 10px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --portal-topbar-offset: 64px;
+  /* Category cell: the circular add button and the text offset that clears it. */
+  --asset-table-category-cell-inset: 6px;
+  --asset-table-category-btn-size: 22px;
+  --asset-table-category-btn-gap: 10px;
+  --asset-table-category-text-offset: calc(
+    var(--asset-table-category-cell-inset) + var(--asset-table-category-btn-size) + var(--asset-table-category-btn-gap)
+  );
+}
+
+#assetInventoryAppHost {
+  min-height: 100vh;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+/* Portal-safe reset for host-injected styles on controls/media */
+#assetInventoryAppHost button {
+  text-transform: none;
+}
+
+#assetInventoryAppHost a[href],
+#assetInventoryAppHost button,
+#assetInventoryAppHost [role="button"],
+#assetInventoryAppHost [aria-haspopup="true"],
+#assetInventoryAppHost [onclick] {
+  cursor: pointer;
+}
+
+/* Column layout + the header rule; the rest of the shell comes from global.css. */
+#assetInventoryAppHost .inventory-page {
+  margin-top: 6px;
+  padding: 8px var(--space-md) var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+#assetInventoryAppHost .inventory-header {
+  gap: var(--space-md);
+  /* padding-bottom: var(--space-md); */
+}
+
+#assetInventoryAppHost .inventory-header h1 {
+  color: var(--ink);
+  padding-top: 7px;
+}
+
+#assetInventoryAppHost .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/*
+ * The three toolbar icon buttons are sized, shaped and colored entirely by
+ * global.css now: .qaf-btn / .qaf-btn--square give the 30x30 box and 5px
+ * radius, and .qaf-btn--square-inverse gives the inverse CS_SETTING pairing
+ * (ButtonBackGroundColor on the border and the glyph, ButtonTextColor as the
+ * fill) plus the light-blue selected state for the table/grid pair. The
+ * per-button primary/secondary color rules that used to live here were
+ * removed rather than kept: their ID-scoped selectors outranked the shared
+ * component and would have pinned these three back to the old
+ * fill-from-background look.
+ */
+
+/* CS_SETTING dynamic theme for the round category add buttons. These stay
+   local: they are circles, not squares, so .qaf-btn--square-inverse does not
+   apply to them and they keep the normal (non-inverse) pairing. */
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn--primary,
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn--primary:hover,
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn--primary:focus,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn--primary,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn--primary:hover,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn--primary:focus {
+  color: var(--ButtonTextColor, #000000);
+  background-color: var(--ButtonBackGroundColor, #ffffff);
+}
+
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn .fa,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn .fa {
+  color: inherit;
+}
+
+/* Restore circular add-btn layout (global qaf-cs-theme-btn sets min-height: 28px). */
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn {
+  min-height: unset;
+  min-width: unset;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: 1px solid #000000 !important;
+  background-image: none;
+  box-shadow: none;
+  gap: 0;
+  letter-spacing: normal;
+  white-space: normal;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
+}
+
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn {
+  flex: 0 0 var(--asset-table-category-btn-size);
+  width: var(--asset-table-category-btn-size);
+  height: var(--asset-table-category-btn-size);
+  min-height: var(--asset-table-category-btn-size);
+  min-width: var(--asset-table-category-btn-size);
+}
+
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  min-width: 22px;
+}
+
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn--primary,
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn--primary:hover,
+#assetInventoryAppHost .asset-table__add-btn.qaf-cs-theme-btn--primary:focus,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn--primary,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn--primary:hover,
+#assetInventoryAppHost .asset-card__add-btn.qaf-cs-theme-btn--primary:focus {
+  border: 1px solid #000000 !important;
+  background-image: none;
+  transform: none;
+}
+
+#assetInventoryAppHost .toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+/* The selected (is-active) look for the table/grid pair now comes from
+   .qaf-btn--square-inverse.is-active in global.css - light blue glyph on a
+   lighter blue fill. The old local rule was removed so it cannot outrank it. */
+
+#assetInventoryAppHost .asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-7);
+}
+
+#assetInventoryAppHost .asset-table-view {
+  width: 100%;
+}
+
+#assetInventoryAppHost .is-view-hidden {
+  display: none !important;
+}
+
+/* global.css sizes and borders the wrap; this adds the filler anchor below
+   and the horizontal scrollbar. Matches AgingLifecycle's own expiry table
+   (agingreport.css's .table-panel .table-wrap) exactly: hidden until
+   hover, then revealed at 10px, with Firefox toggling scrollbar-width
+   itself (none -> auto) the same way, rather than reserving a gutter and
+   only recoloring the thumb. Neither implementation sets an explicit
+   thumb/track color, so both render the browser's native default
+   scrollbar appearance while it's visible.
+   Note: toggling the reserved height itself (0 -> 10px) on :hover, as
+   below, is the exact technique agingreport.css uses, but it's also what
+   previously caused a hover flicker here (the box briefly resizing could
+   drop the cursor out of :hover and repeat). Reverting to it to match the
+   reference exactly reintroduces that same risk on this page.
+   ::-webkit-scrollbar-button removes the small clickable arrow icons some
+   browsers otherwise render at each end of the track - scrolling itself
+   (drag-the-thumb, wheel/trackpad, keyboard) still works exactly as
+   before, since those arrows are just an alternate, non-required way to
+   nudge the scroll position; the reference doesn't style them either way
+   (native default), so keeping them removed doesn't conflict with it. */
+#assetInventoryAppHost .asset-table-wrap {
+  position: relative;
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+  scrollbar-width: none; /* Firefox: hidden until hover */
+}
+
+#assetInventoryAppHost .asset-table-wrap:hover {
+  scrollbar-width: auto; /* Firefox: shown on hover */
+}
+
+#assetInventoryAppHost .asset-table-wrap::-webkit-scrollbar {
+  height: 0; /* Chrome/Safari/Edge: hidden until hover */
+}
+
+#assetInventoryAppHost .asset-table-wrap:hover::-webkit-scrollbar {
+  height: 10px; /* Chrome/Safari/Edge: shown on hover */
+}
+
+#assetInventoryAppHost .asset-table-wrap::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Fills the empty strip to the right of the last column (when columns are
+   narrower than the wrap) with the same header background/border, so
+   shrinking a column never leaves a blank gap next to the header. */
+#assetInventoryAppHost .asset-table-wrap::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 37px;
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* No fixed/percentage width here on purpose: with table-layout:fixed, a
+   percentage width forces the browser to rescale EVERY column whenever one
+   column's width changes (that was the "left columns move" bug). Letting width
+   sit at its natural sum-of-columns size, with the wrap scrolling horizontally
+   when needed, is what gives Excel-style independent column resizing: only the
+   dragged column changes, the table just gets wider. GridTable then writes the
+   exact sum onto the table as it resizes.
+   z-index keeps the table above the header filler strip below. */
+#assetInventoryAppHost .asset-table {
+  width: max-content;
+  min-width: 0;
+  table-layout: fixed;
+  position: relative;
+  z-index: 1;
+}
+
+/* Denser rows than the shared table defaults; the sort icon, the sticky header
+   and the row borders themselves come from global.css. */
+#assetInventoryAppHost .asset-table th,
+#assetInventoryAppHost .asset-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  color: #000000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* overflow: visible lets GridTable's resize handle sit on the column boundary;
+   the padding leaves room for the sort icon and that handle. Background/text
+   color match global.css's canonical th styling (--color-bg-subtle /
+   --color-text-secondary) instead of one-off hex values. */
+#assetInventoryAppHost .asset-table th {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  overflow: visible;
+}
+
+#assetInventoryAppHost .asset-table th.gt-sortable {
+  user-select: none;
+}
+
+/*
+ * The resizer hit-zone, its separator "pipe" and the reveal-on-header-hover
+ * behaviour now come from the shared component in global.css's "Grid Table
+ * Runtime" section, so they are no longer restated here.
+ */
+
+#assetInventoryAppHost .asset-table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* The Category cell's hyperlink colour is global.css's .link (#009ce7), applied
+   via the "link" class on the anchor - no page-level colour here. */
+
+#assetInventoryAppHost .asset-table-category-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--asset-table-category-btn-gap);
+  max-width: 100%;
+  min-width: 0;
+}
+
+#assetInventoryAppHost .asset-table__add-btn {
+  flex: 0 0 var(--asset-table-category-btn-size);
+  width: var(--asset-table-category-btn-size);
+  height: var(--asset-table-category-btn-size);
+  border-radius: 50%;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+#assetInventoryAppHost .asset-table thead th:nth-child(1) {
+  padding-left: var(--asset-table-category-text-offset);
+}
+
+#assetInventoryAppHost .asset-table tbody td:nth-child(1) {
+  padding-left: var(--asset-table-category-cell-inset);
+}
+
+#assetInventoryAppHost .asset-table__add-btn .fa {
+  font-size: 10px;
+  line-height: 1;
+}
+
+#assetInventoryAppHost .asset-table tbody td:nth-child(1):hover .asset-table__add-btn,
+#assetInventoryAppHost .asset-table tbody td:nth-child(1):focus-within .asset-table__add-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+#assetInventoryAppHost .asset-table__add-btn:hover,
+#assetInventoryAppHost .asset-table__add-btn:focus {
+  outline: none;
+}
+#assetInventoryAppHost .asset-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#assetInventoryAppHost .asset-card__title {
+  margin: 0;
+  padding-right: 40px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: #000000;
+  line-height: 1.25;
+}
+
+#assetInventoryAppHost .asset-card__add-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+#assetInventoryAppHost .asset-card__add-btn .fa {
+  font-size: 11px;
+  line-height: 1;
+}
+
+#assetInventoryAppHost .asset-card:hover .asset-card__add-btn,
+#assetInventoryAppHost .asset-card:focus-within .asset-card__add-btn {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+#assetInventoryAppHost .asset-card__add-btn:hover,
+#assetInventoryAppHost .asset-card__add-btn:focus {
+  outline: none;
+}
+
+/* Card view only: the title link takes the card's own text colour. Scoped to the
+   title so it can't outrank global.css's .link on the table's Category cell. */
+#assetInventoryAppHost .asset-card__title .asset-category-link,
+#assetInventoryAppHost .asset-card__title .asset-category-link:hover,
+#assetInventoryAppHost .asset-card__title .asset-category-link:focus,
+#assetInventoryAppHost .asset-card__title .asset-category-link:active,
+#assetInventoryAppHost .asset-card__title .asset-category-link:visited {
+  color: inherit;
+  text-decoration: none;
+}
+
+#assetInventoryAppHost .asset-card__body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+#assetInventoryAppHost .asset-card__icon-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  align-self: stretch;
+  padding: 6px;
+  background: var(--muted-fill);
+  border: 0;
+  border-radius: var(--radius-sm);
+}
+
+#assetInventoryAppHost .asset-card__icon {
+  display: block;
+  width: 125px;
+  height: 150px;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border: 0;
+}
+
+/* Match icon column visual height (150px icon + 12px icon-slot vertical padding). */
+#assetInventoryAppHost .asset-card__stats {
+  align-self: stretch;
+  min-height: 0;
+  max-height: 162px;
+  height: 162px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.22) transparent;
+}
+
+#assetInventoryAppHost .asset-card__stats::-webkit-scrollbar {
+  width: 5px;
+}
+
+#assetInventoryAppHost .asset-card__stats::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#assetInventoryAppHost .asset-card__stats::-webkit-scrollbar-thumb {
+  background-color: rgba(15, 23, 42, 0.2);
+  border-radius: 999px;
+}
+
+#assetInventoryAppHost .asset-card__stats::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(15, 23, 42, 0.32);
+}
+
+#assetInventoryAppHost .asset-card__stats-inner {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+  width: 100%;
+}
+
+#assetInventoryAppHost .asset-card__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #000000;
+  border-bottom: 0;
+}
+
+#assetInventoryAppHost .asset-card__row:nth-child(even) {
+  background: var(--muted-fill);
+}
+
+#assetInventoryAppHost .asset-card__row-label {
+  color: #000000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#assetInventoryAppHost .asset-card__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  color: #000000;
+  min-width: 2ch;
+  text-align: right;
+}
+
+#assetInventoryAppHost .empty-state,
+#assetInventoryAppHost .error-box {
+  margin: 0;
+  padding: var(--space-md);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--subtle);
+}
+
+#assetInventoryAppHost .error-box {
+  border-color: var(--error-line);
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* Portal-level global shadow reset can inject shadows with !important; neutralize inside this page. */
+#assetInventoryAppHost .asset-card,
+#assetInventoryAppHost .empty-state,
+#assetInventoryAppHost .error-box,
+#assetInventoryAppHost .asset-card__stats,
+#assetInventoryAppHost .asset-card__stats-inner,
+#assetInventoryAppHost .asset-card__icon-slot {
+  box-shadow: none !important;
+}
+
+/*
+ * "All Types" filter. The control itself is global.css's shared .qaf-app-picker
+ * dropdown (field box, arrow, floating list, options), so only its toolbar width
+ * and the selected-option marker - which the shared control leaves to its host -
+ * are declared here.
+ */
+#assetInventoryAppHost .toolbar__field,
+#assetInventoryAppHost .inven-type-picker {
+  width: 170px;
+}
+
+/* Not host-scoped: while open, the list is portaled to <body> by
+   QafLibrary.Dropdown, so the hook class on the list is what stays reachable. */
+.inven-type-picker__list .qaf-app-picker__option[aria-selected="true"] {
+  background: #f9fafb;
+  color: #111827;
+}
+
+/* Utilization row + pill bar at the bottom of each asset card */
+#assetInventoryAppHost .inven-util {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+#assetInventoryAppHost .inven-util__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+#assetInventoryAppHost .inven-util__title {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--subtle);
+}
+
+#assetInventoryAppHost .inven-util__pct {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #4b5563;
+  font-variant-numeric: tabular-nums;
+}
+
+#assetInventoryAppHost .inven-util-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: #e8e6f0;
+  overflow: hidden;
+}
+
+#assetInventoryAppHost .inven-util-bar__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #7c5ce6;
+  transition: width 240ms ease;
+}
+
+@media (max-width: 640px) {
+  #assetInventoryAppHost .inventory-page {
+    padding: 6px var(--space-sm) var(--space-lg);
+  }
+
+  #assetInventoryAppHost .asset-card__body {
+    grid-template-columns: 1fr;
+  }
+
+  #assetInventoryAppHost .toolbar__field,
+  #assetInventoryAppHost .inven-type-picker {
+    min-width: 0;
+    width: 100%;
+  }
+
+  #assetInventoryAppHost .toolbar__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+/*
+ * ---------------------------------------------------------------------------
+ * Funnel Filter (Asset Inventory)
+ * ---------------------------------------------------------------------------
+ * Ported class-for-class from Asset Search's Funnel Filter (search.css) so the
+ * modal, dropdowns, checkboxes and buttons render identically on this page.
+ * The base overlay/panel shell (.as-filter-modal-overlay, .as-filter-modal)
+ * is already declared once in global.css and is intentionally NOT repeated
+ * here - only the page-level rules that search.css itself adds on top of that
+ * shared shell are duplicated below. global.css and library.js are not
+ * modified for this feature.
+ */
+.as-filter-modal-overlay:not([hidden]) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-7);
+}
+
+.as-filter-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.as-filter-modal,
+.as-filter-modal .asset-filter-title,
+.as-filter-modal label,
+.as-filter-modal .as-filter-item > label,
+.as-filter-modal .as-filter-select,
+.as-filter-modal input,
+.as-filter-modal select,
+.as-filter-modal .qaf-cs-theme-btn {
+  font-weight: 400;
+  color: #000;
+  font-family: var(--font-family-base);
+}
+
+.as-filter-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-border-default);
+}
+
+.asset-filter-title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 400;
+  color: #000;
+}
+
+.as-filter-close {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #000;
+  font-size: 28px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: none;
+  transition: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.as-filter-close:hover,
+.as-filter-close:focus,
+.as-filter-close:focus-visible,
+.as-filter-close:active {
+  color: #000;
+  background: transparent;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  transition: none;
+}
+
+.as-filter-fields {
+  --as-filter-dropdown-row-height: 38px;
+  --as-filter-multi-row-height: 28px;
+  --as-filter-dropdown-visible-rows: 5;
+  --as-filter-multi-visible-rows: 5;
+  --as-filter-dropdown-panel-height: calc(
+    var(--as-filter-dropdown-visible-rows) * var(--as-filter-dropdown-row-height) + var(--space-2) * 2
+  );
+  --as-filter-multi-panel-height: calc(
+    var(--as-filter-multi-visible-rows) * var(--as-filter-multi-row-height) + var(--space-2) * 2
+  );
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--space-7);
+  row-gap: var(--space-4);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  flex: 1 1 auto;
+  margin-right: -15px;
+  padding-right: 15px;
+}
+
+.as-filter-item {
+  display: grid;
+  gap: 0;
+  font-size: var(--font-size-sm);
+}
+
+.as-filter-item > label {
+  display: block;
+  margin-bottom: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: #000 !important;
+}
+
+.as-filter-select-wrap {
+  position: relative;
+}
+
+.as-filter-select-trigger,
+.as-filter-select-input {
+  display: block;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  margin: 0;
+  padding: 0 34px 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.25;
+  box-sizing: border-box;
+  box-shadow: none;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.as-filter-select-input::placeholder {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  opacity: 1;
+}
+
+.as-filter-select-wrap.is-open .as-filter-select-input,
+.as-filter-select-input:hover,
+.as-filter-select-input:focus,
+.as-filter-select-input:focus-visible {
+  border-color: #9ca3af;
+  outline: none;
+}
+
+.as-filter-select-input:focus,
+.as-filter-select-input:focus-visible {
+  cursor: text;
+}
+
+.as-filter-select-trigger__text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.as-filter-item:has(.as-filter-select-wrap.is-open) {
+  position: relative;
+  z-index: 2;
+}
+
+.as-filter-select-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: calc(var(--z-modal) + 2);
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  background: var(--color-bg-surface);
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+  max-height: var(--as-filter-dropdown-panel-height, 220px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #b8b8b8 transparent;
+}
+
+.as-filter-select-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.as-filter-select-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.as-filter-select-panel::-webkit-scrollbar-thumb {
+  background-color: #b8b8b8;
+  border-radius: 4px;
+}
+
+.as-filter-select-panel[hidden] {
+  display: none !important;
+}
+
+.as-filter-select-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--as-filter-dropdown-row-height, 38px);
+  margin: 0;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: #374151;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.as-filter-select-option:hover,
+.as-filter-select-option:focus-visible {
+  background: #f3f4f6;
+  outline: none;
+}
+
+.as-filter-select-option.is-selected {
+  background: #f9fafb;
+  color: #111827;
+}
+
+.as-filter-select-option.is-filter-hidden,
+.as-filter-select-option[hidden] {
+  display: none !important;
+}
+
+.as-filter-select-empty {
+  margin: 0;
+  padding: 9px 14px;
+  color: #6b7280;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.as-filter-select-empty[hidden] {
+  display: none !important;
+}
+
+.as-filter-select-panel .as-filter-select-checkbox {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  max-height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  accent-color: var(--color-primary);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.as-filter-select-option__label {
+  flex: 1;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.as-filter-select-panel[aria-multiselectable="true"] {
+  max-height: var(--as-filter-multi-panel-height);
+  padding: 4px 0;
+}
+
+.as-filter-select-panel[aria-multiselectable="true"] label.as-filter-select-option {
+  margin: 0;
+  border: 0;
+  font: inherit;
+  font-weight: var(--font-weight-regular);
+  cursor: pointer;
+  min-height: var(--as-filter-multi-row-height);
+  padding: 2px var(--space-4);
+  gap: var(--space-2);
+}
+
+.as-filter-select-panel[aria-multiselectable="true"] label.as-filter-select-option:hover {
+  background: #f3f4f6;
+}
+
+.as-filter-select-panel[aria-multiselectable="true"] .as-filter-select-option__label {
+  line-height: 1.25;
+}
+
+.as-filter-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-8);
+}
+
+.as-btn-ghost {
+  background: var(--color-bg-surface);
+}
+
+@media (max-width: 640px) {
+  .as-filter-fields {
+    grid-template-columns: 1fr;
+  }
+}
