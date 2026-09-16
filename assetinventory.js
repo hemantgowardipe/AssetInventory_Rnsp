@@ -1,7 +1,6 @@
 (() => {
   "use strict";
 
-  const OBJECT_NAME_CATEGORY_PRIMARY = "EAsset_Category";
   const MASTER_EDIT_FORM = {
     repository: "EAsset_Master",
     objectId: "deea3ada-225e-44de-a785-2d81a45e9851"
@@ -60,9 +59,6 @@
     viewModeChosen: false,
     renderedCards: [],
     inventoryRows: [],
-    iconUrlByCategoryRecordId: {},
-    iconUrlByCategoryName: {},
-    categoryRecordIdByName: {},
     isLoading: false,
     lastLoadedAt: 0,
     statusColumns: [],
@@ -280,10 +276,6 @@
     return msg;
   }
 
-  function getBundleQafService() {
-    return window.QafService || (window.parent && window.parent.QafService) || null;
-  }
-
   function findHostQafPageService() {
     try {
       if (window.QafPageService) return window.QafPageService;
@@ -323,35 +315,12 @@
     return parts.length > 1 ? parts[1] : text;
   }
 
-  function parseLookupId(value) {
-    const text = String(value || "").trim();
-    if (!text) return "";
-    const parts = text.split(";#");
-    return String(parts[0] || "").trim();
-  }
-
   function formatLookupPrefillValue(recordId, label) {
     const id = String(recordId || "").trim();
     const name = String(label || "").trim();
     if (id && name) return `${id};#${name}`;
     if (id) return id;
     return name;
-  }
-
-  /** GetItems returns a flat array, or { data | records | value: [...] }. */
-  function normalizeRecords(payload) {
-    if (Array.isArray(payload)) return payload;
-    if (!payload || typeof payload !== "object") return [];
-    const list =
-      payload.data ||
-      payload.Data ||
-      payload.records ||
-      payload.Records ||
-      payload.value ||
-      payload.Value ||
-      payload.items ||
-      payload.Items;
-    return Array.isArray(list) ? list : [];
   }
 
   function flattenRecord(row) {
@@ -643,16 +612,6 @@
    *  re-aggregates; it only reshapes each row into what renderCards/
    *  renderTableView/exportSummaryCsv already expect. */
   function getCardsFromRnspRows(rnspRows) {
-    // A specific Type filter is the one case we can still label the cards
-    // with a Type: RNSP doesn't return Type per category row, but if the
-    // user narrowed to one Type we already know which one and its RecordID.
-    const selectedTypeLabel = String(state.selectedType || "").trim();
-    const selectedTypeEntry = selectedTypeLabel
-      ? state.typeLookupByNormalizedName && state.typeLookupByNormalizedName[normalizeToken(selectedTypeLabel)]
-      : null;
-    const categoryType = selectedTypeEntry ? selectedTypeEntry.name : selectedTypeLabel;
-    const typeRecordId = selectedTypeEntry ? selectedTypeEntry.recordId : "";
-
     const cards = [];
     const seen = new Set();
     (Array.isArray(rnspRows) ? rnspRows : []).forEach((row) => {
@@ -671,21 +630,22 @@
       const derivedTotal = RNSP_STATUS_FIELDS.reduce((sum, field) => sum + Number(flat[field] || 0), 0);
       const total = flat.GrossTotal != null && flat.GrossTotal !== "" ? Number(flat.GrossTotal) || 0 : derivedTotal;
 
-      // RNSP doesn't return the category's RecordID (see doc field list) -
-      // resolved here from the side EAsset_Category lookup by name instead.
-      const categoryId = (state.categoryRecordIdByName && state.categoryRecordIdByName[nameKey]) || "";
+      // CategoryRecordID/TypeRecordID now come straight from RNSP - no more
+      // side lookup against EAsset_Category needed for these.
+      const categoryId = String(flat.CategoryRecordID || "").trim();
 
-      // Icon: prefer the one RNSP returns for this row (doc sections 10-12);
-      // fall back to the side EAsset_Category lookup's icon if RNSP's is
-      // missing/invalid for this category.
-      const rnspIconUrl = parseIconReference(flat.Icon).directUrl;
-      const iconUrl =
-        rnspIconUrl ||
-        (categoryId && state.iconUrlByCategoryRecordId && state.iconUrlByCategoryRecordId[categoryId]) ||
-        (state.iconUrlByCategoryName && state.iconUrlByCategoryName[nameKey]) ||
-        "";
+      // RNSP returns the Type's RecordID but not its display name/label, so
+      // categoryType is left empty here - see the caveat where this was
+      // introduced. typeRecordId alone is still enough to carry the correct
+      // GUID into the &type= URL param.
+      const typeRecordId = String(flat.TypeRecordID || "").trim();
+      const categoryType = "";
 
-      const card = enrichCardTypeForPrefill({
+      // Icon now comes solely from RNSP's own Icon field - no more fallback
+      // to a side EAsset_Category lookup.
+      const iconUrl = parseIconReference(flat.Icon).directUrl;
+
+      cards.push({
         recordId: categoryId,
         categoryName,
         categoryType,
@@ -694,48 +654,12 @@
         total,
         statusMap
       });
-      cards.push(card);
     });
     return cards.sort((a, b) => {
       const totalDiff = Number(b.total || 0) - Number(a.total || 0);
       if (totalDiff !== 0) return totalDiff;
       return String(a.categoryName || "").localeCompare(String(b.categoryName || ""));
     });
-  }
-
-  async function fetchCategoryIconsViaSdk() {
-    const qafService = getBundleQafService();
-    if (!qafService || typeof qafService.GetItems !== "function") {
-      throw new Error("QafService.GetItems is not available (bundle.js).");
-    }
-    const payload = await qafService.GetItems(
-      OBJECT_NAME_CATEGORY_PRIMARY,
-      ["RecordID", "CategoryName", "Icon"],
-      100000,
-      1,
-      "",
-      "",
-      true
-    );
-    const byId = {};
-    const byName = {};
-    // RNSP's response has no CategoryID/RecordID field (see doc section 1's
-    // field list) but the "Add Asset" prefill and the category drill-through
-    // link both need it, so this SDK call - already fetching EAsset_Category
-    // for its icon - doubles as the CategoryName -> RecordID resolver.
-    const idByName = {};
-    normalizeRecords(payload).forEach((row) => {
-      const recordId = String(row.RecordID || "").trim();
-      const categoryName = String(row.CategoryName || "").trim();
-      if (!categoryName) return;
-      const key = normalizeToken(categoryName);
-      if (recordId) idByName[key] = recordId;
-      const iconRef = parseIconReference(row.Icon);
-      const iconUrl = iconRef.directUrl;
-      if (iconUrl && recordId) byId[recordId] = iconUrl;
-      if (iconUrl) byName[key] = iconUrl;
-    });
-    return { byId, byName, idByName };
   }
 
   function parseIconReference(raw) {
@@ -1996,14 +1920,18 @@
     inventoryResponseCache.clear();
     const errors = [];
 
-    // Asset Type options are intentionally not fetched here - see
-    // ensureAssetTypeOptionsLoaded, called lazily when the Type dropdown is
-    // first opened (ASSET_INVENTORY_TYPE_FILTER is only called on open, per
-    // its integration doc, and cached afterward).
-    const [rnspResult, iconsResult] = await Promise.allSettled([
-      fetchInventorySummaryByRnsp(),
-      fetchCategoryIconsViaSdk()
-    ]);
+    // CategoryRecordID, TypeRecordID and Icon all come from RNSP's own
+    // response now (see getCardsFromRnspRows) - no separate lookup needed.
+    // Asset Type dropdown options are intentionally not fetched here either
+    // - see ensureAssetTypeOptionsLoaded, called lazily when the Type
+    // dropdown is first opened, and cached afterward.
+    let rnspResult;
+    try {
+      const rows = await fetchInventorySummaryByRnsp();
+      rnspResult = { status: "fulfilled", value: rows };
+    } catch (error) {
+      rnspResult = { status: "rejected", reason: error };
+    }
 
     if (rnspResult.status === "fulfilled") {
       state.inventoryRows = Array.isArray(rnspResult.value) ? rnspResult.value : [];
@@ -2017,17 +1945,6 @@
       errors.push(`Asset inventory: ${formatFetchError(rnspResult.reason)}`);
       state.inventoryRows = [];
       state.statusColumns = getFixedRnspStatusColumns();
-    }
-
-    if (iconsResult.status === "fulfilled") {
-      const { byId = {}, byName = {}, idByName = {} } = iconsResult.value || {};
-      state.iconUrlByCategoryRecordId = byId;
-      state.iconUrlByCategoryName = byName;
-      state.categoryRecordIdByName = idByName;
-    } else {
-      state.iconUrlByCategoryRecordId = {};
-      state.iconUrlByCategoryName = {};
-      state.categoryRecordIdByName = {};
     }
 
     if (errors.length) showError(errors.join(" | "));
