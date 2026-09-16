@@ -634,12 +634,10 @@
       // side lookup against EAsset_Category needed for these.
       const categoryId = String(flat.CategoryRecordID || "").trim();
 
-      // RNSP returns the Type's RecordID but not its display name/label, so
-      // categoryType is left empty here - see the caveat where this was
-      // introduced. typeRecordId alone is still enough to carry the correct
-      // GUID into the &type= URL param.
+      // RNSP now returns the Type's RecordID and its display label (AssetType)
+      // both - use AssetType exactly as received, never derived from Category.
       const typeRecordId = String(flat.TypeRecordID || "").trim();
-      const categoryType = "";
+      const categoryType = String(flat.AssetType || "").trim();
 
       // Icon now comes solely from RNSP's own Icon field - no more fallback
       // to a side EAsset_Category lookup.
