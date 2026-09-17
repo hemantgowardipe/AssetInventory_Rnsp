@@ -48,7 +48,12 @@
     filterCloseBtn: null,
     filterFields: null,
     clearFiltersBtn: null,
-    applyFiltersBtn: null
+    applyFiltersBtn: null,
+    // Infinite scroll - created at runtime (see ensureScrollLoader), no
+    // existing markup for these before this change.
+    scrollLoaderWrap: null,
+    scrollLoaderText: null,
+    scrollSentinel: null
   };
 
   const state = {
@@ -77,17 +82,15 @@
     vendorFilterOptions: [],
     itemStatusFilterOptions: [],
     employeeOptions: [],
-    assetManagerOptions: []
+    assetManagerOptions: [],
+    // Mirrors the infinite-scroll pager's own state (see createInfinitePager/
+    // ensureInventoryPager) for render-time decisions like the empty-state
+    // text and the "loading more" indicator. The pager is the source of
+    // truth; this is just what the last onState callback reported.
+    pager: { isLoading: false, hasMore: true, rowCount: 0 }
   };
 
   let filterOptionsLoadPromise = null;
-  // Perf: cache ASSET_INVENTORY_RNSP responses by their exact Args, so
-  // reselecting a filter combination already fetched this session is
-  // instant instead of re-paying the SQL round trip. inventoryFetchAbortController
-  // tracks whichever RNSP request is currently in flight so a newer
-  // selection can cancel it rather than let two race to render.
-  const inventoryResponseCache = new Map();
-  let inventoryFetchAbortController = null;
 
   // Funnel Filter field definitions, mirroring Asset Search's FILTER_FIELDS.
   // "Type" already has its own dedicated, always-visible dropdown on this page
@@ -503,7 +506,7 @@
    *  whatever combination of the Type dropdown and Funnel Filter modal is
    *  currently active. Every key is always sent, defaulting to "All" - the
    *  workflow is not sent a partial arg set. */
-  function buildRnspArgs() {
+  function buildRnspArgs(pageNumber, pageSize) {
     return {
       CategoryFilter: activeFilterArgValue("Category"),
       AssetTypeFilter: activeAssetTypeArgValue(),
@@ -512,7 +515,9 @@
       VendorFilter: activeFilterArgValue("VendorID"),
       AssignedToFilter: activeAssignedToArgValue(),
       AssetManagerFilter: activeFilterArgValue("AssetManager"),
-      ItemStatusFilter: activeFilterArgValue("ItemStatus")
+      ItemStatusFilter: activeFilterArgValue("ItemStatus"),
+      PageNumber: String(pageNumber),
+      PageSize: String(pageSize)
     };
   }
 
@@ -530,39 +535,482 @@
     return [];
   }
 
-  /** Calls ASSET_INVENTORY_RNSP with the current filter state and returns the
-   *  normalized array of {Category, Icon, Allocated, InStore, InRepair,
-   *  Dispose, Other, GrossTotal} rows. Replaces the old /api/Sroa summary
-   *  fetch - all filtering (Type included) now happens in the SQL behind this
-   *  workflow, so no client-side re-filtering is applied to what comes back. */
-  async function fetchInventorySummaryByRnsp() {
-    const args = buildRnspArgs();
-    const cacheKey = JSON.stringify(args);
+  /** RNSP's paginated response is two result sets: [rows[], [{TotalRecords}]].
+   *  Each set is run through normalizeAssetInventoryResponse individually,
+   *  in case either ever comes wrapped in data/result/Records rather than as
+   *  a bare array - same defensiveness as before, just applied per-set now
+   *  that there are two of them instead of one. */
+  /** Unwraps a response that might be the result-set data directly, or
+   *  wrapped one level in data/result/Records/{Table1,Table2} - the same
+   *  wrapper variations normalizeAssetInventoryResponse already tolerates
+   *  for a single result set. */
+  function unwrapRnspResultSets(response) {
+    if (Array.isArray(response)) return response;
+    if (response && typeof response === "object") {
+      if (Array.isArray(response.data)) return response.data;
+      if (Array.isArray(response.result)) return response.result;
+      if (Array.isArray(response.Records)) return response.Records;
+      if (Array.isArray(response.Table1) || Array.isArray(response.Table2)) {
+        return [response.Table1 || [], response.Table2 || []];
+      }
+    }
+    return [];
+  }
 
-    // A newer selection always wins: cancel whatever previous RNSP request
-    // is still in flight before deciding how to serve this one, whether
-    // that's instantly from cache or via a fresh request. Without this, a
-    // slow superseded request could still resolve later and overwrite the
-    // screen with stale data.
-    if (inventoryFetchAbortController) {
-      inventoryFetchAbortController.abort();
-      inventoryFetchAbortController = null;
+  /** Reads a TotalRecords-style count off a payload or row, tolerant of the
+   *  exact casing the backend uses (TotalRecords / TotalRecord / TotalCount /
+   *  Total) - matches ASSET_REQUISITION_TABLE's own extractCountValue on
+   *  this same platform, since stored procedures here don't all expose it
+   *  the same way. */
+  function extractTotalRecordsValue(source) {
+    if (!source || typeof source !== "object") return null;
+    const aliases = ["totalrecords", "totalrecord", "totalcount", "total"];
+    const keys = Object.keys(source);
+    for (let i = 0; i < aliases.length; i += 1) {
+      const matchKey = keys.find((k) => k.toLowerCase() === aliases[i]);
+      if (matchKey == null) continue;
+      const value = source[matchKey];
+      if (value === "" || value == null) continue;
+      const num = Number(value);
+      if (Number.isFinite(num)) return num;
+    }
+    return null;
+  }
+
+  /** ASSET_INVENTORY_RNSP's paginated response can arrive as either of two
+   *  shapes this platform uses for paginated rnsp workflows:
+   *   A) [ rows[], [{TotalRecords}] ]  - two nested result-set arrays, as
+   *      originally documented for this workflow.
+   *   B) [ {...row}, {...row}, ... ]   - a single flat array of row objects,
+   *      each possibly carrying its own TotalRecords-style column (a
+   *      COUNT(*) OVER() pattern) - the shape ASSET_REQUISITION_TABLE, a
+   *      sibling paginated workflow on this same backend, actually uses.
+   *  Telling them apart is unambiguous: in (A) the first element is itself
+   *  an array (a table); in (B) it's a row object. */
+  function parseRnspPaginatedResponse(response) {
+    const resultSets = unwrapRnspResultSets(response);
+    const firstElement = resultSets[0];
+    const isNestedResultSets = Array.isArray(firstElement);
+
+    const rawRows = isNestedResultSets ? firstElement : resultSets;
+    const rawTotals = isNestedResultSets ? resultSets[1] : null;
+
+    const rows = normalizeAssetInventoryResponse(rawRows);
+    const totalsSet = normalizeAssetInventoryResponse(rawTotals);
+
+    let totalRecords = extractTotalRecordsValue(totalsSet[0]);
+    if (totalRecords == null && response && typeof response === "object" && !Array.isArray(response)) {
+      // A top-level field on the response itself, in case it wasn't nested
+      // in a result set or attached per-row at all.
+      totalRecords = extractTotalRecordsValue(response);
+    }
+    if (totalRecords == null && rows.length) {
+      // Shape (B): attached to each row via COUNT(*) OVER().
+      totalRecords = extractTotalRecordsValue(rows[0]);
+    }
+    // If no explicit total was found anywhere, report 0 rather than
+    // guessing rows.length - that would make hasMore's math
+    // (page * pageSize < totalRecords) see e.g. 20 < 20 and stop after the
+    // very first page even when more records genuinely exist. Returning 0
+    // here instead lets createInfinitePager fall back to its own row-count
+    // heuristic (a full page came back, so assume there's more) correctly.
+    return { rows, totalRecords: totalRecords == null ? 0 : Number(totalRecords) || 0 };
+  }
+
+  /** Calls ASSET_INVENTORY_RNSP with the current filter/pagination state and
+   *  returns { rows, totalRecords } - rows being the normalized array of
+   *  {Category, Icon, Allocated, InStore, InRepair, Dispose, Other,
+   *  GrossTotal, CategoryRecordID, TypeRecordID, AssetType} rows for the
+   *  current page, totalRecords being the pre-pagination category count.
+   *  All filtering (Type included) happens in the SQL behind this workflow,
+   *  so no client-side re-filtering is applied to what comes back. */
+  /** fetchPage callback for the infinite-scroll pager (see
+   *  createInfinitePager/ensureInventoryPager below): calls
+   *  ASSET_INVENTORY_RNSP for one page of the current filter combination and
+   *  returns { rows, totalRecords }. The pager itself handles aborting a
+   *  superseded call and ignoring a late response - this function just makes
+   *  the request. */
+  async function fetchAssetInventoryPage(page, pageSize, signal) {
+    const args = buildRnspArgs(page, pageSize);
+    const payload = { Name: RNSP_WORKFLOW_NAME, Args: args };
+    const response = await postJson(buildRnspUrl(), payload, signal);
+    const result = parseRnspPaginatedResponse(response);
+    if (!result.rows.length) {
+      // Either RNSP genuinely returned nothing for this page/filter
+      // combination, or the response came back in a shape
+      // parseRnspPaginatedResponse doesn't recognize yet - logging the raw
+      // response here makes it possible to tell those apart from the
+      // browser console/Network tab without guessing blind.
+      console.warn("[Asset Inventory] ASSET_INVENTORY_RNSP returned zero rows for page", page, "- raw response:", response);
+    }
+    return result;
+  }
+
+  /** Generic infinite-scroll engine, decoupled from this page's data source
+   *  via the fetchPage(page, pageSize, signal) => Promise<{rows,
+   *  totalRecords?}> callback. Tracks its own page/accumulated-rows/hasMore/
+   *  isLoading state; exposes loadNext/reset/connect/disconnect/destroy/
+   *  getState. Only one instance is used on this page (ensureInventoryPager),
+   *  since there's a single active filter combination at a time here rather
+   *  than several simultaneously-cached filter "buckets" sharing one scroll
+   *  surface - reset() is called instead of switching between pager
+   *  instances whenever the filters change. */
+  /**
+   * Local fallback implementations of the scroll/pagination helpers this page
+   * needs (createScrollableTable, createInfinitePager). Ported from the
+   * Asset Requisition page's own proven ReqPagerFallback, adapted for a
+   * grid/table dual view rather than a single table. getPagerFn() below
+   * prefers window.QafLibrary's implementation when the shared library
+   * already provides one, and only falls back to this local copy otherwise -
+   * same pattern Asset Requisition uses, so this page benefits from a more
+   * tested shared implementation if one is available rather than always
+   * re-inventing its own.
+   */
+  const AssetInventoryPagerFallback = (function () {
+    function resolveElementRef(target) {
+      if (!target) return null;
+      if (typeof target === "string") return document.querySelector(target);
+      if (target && target.nodeType === 1) return target;
+      return null;
     }
 
-    const cached = inventoryResponseCache.get(cacheKey);
-    if (cached) return cached;
-
-    const controller = new AbortController();
-    inventoryFetchAbortController = controller;
-    try {
-      const payload = { Name: RNSP_WORKFLOW_NAME, Args: args };
-      const response = await postJson(buildRnspUrl(), payload, controller.signal);
-      const rows = normalizeAssetInventoryResponse(response);
-      inventoryResponseCache.set(cacheKey, rows);
-      return rows;
-    } finally {
-      if (inventoryFetchAbortController === controller) inventoryFetchAbortController = null;
+    function getViewportHeight() {
+      return window.innerHeight || document.documentElement.clientHeight || 0;
     }
+
+    const SCROLLABLE_DEFAULT_MIN_HEIGHT = 420;
+    const SCROLLABLE_DEFAULT_BOTTOM_GAP = 24;
+    const SCROLLABLE_CLASS = "table-wrap--scrollable";
+    const SCROLLABLE_LEGACY_CLASS = "qaf-scrollable-table-wrap";
+
+    /** Viewport height minus the container's own top offset minus a bottom
+     *  gap, floored at minHeight - gives a container a genuine, explicit
+     *  scrollable height regardless of how little content has loaded so far
+     *  (which window-level scrolling can't guarantee: if the page is
+     *  shorter than the viewport there's nothing to scroll at all). */
+    function calcViewportAvailableHeight(options) {
+      const config = options || {};
+      const anchor = resolveElementRef(config.anchor || config.element);
+      let top = Number.isFinite(Number(config.offsetTop)) ? Number(config.offsetTop) : 0;
+      if (anchor) top = anchor.getBoundingClientRect().top;
+
+      const bottomGap = Number.isFinite(Number(config.bottomGap)) && Number(config.bottomGap) >= 0
+        ? Number(config.bottomGap)
+        : SCROLLABLE_DEFAULT_BOTTOM_GAP;
+      const minHeight = Number.isFinite(Number(config.minHeight)) && Number(config.minHeight) > 0
+        ? Number(config.minHeight)
+        : SCROLLABLE_DEFAULT_MIN_HEIGHT;
+      const maxHeight = Number(config.maxHeight);
+
+      let available = getViewportHeight() - top - bottomGap;
+      if (Number.isFinite(maxHeight) && maxHeight > 0) available = Math.min(available, maxHeight);
+      return Math.max(minHeight, Math.floor(available));
+    }
+
+    function isWindowScrollContainer(container) {
+      return !container || container === window || container === document || container === document.documentElement;
+    }
+
+    /** Shared "close enough to the bottom to load more" check for both the
+     *  window and an element-scrolled container, used by the plain
+     *  scroll-event fallback (the IntersectionObserver is the primary
+     *  mechanism when available - see createInfinitePager below). */
+    function isContainerNearBottom(container, offsetPx) {
+      let offset = Number(offsetPx);
+      if (!Number.isFinite(offset) || offset < 0) offset = 180;
+
+      if (isWindowScrollContainer(container)) {
+        const docEl = document.documentElement;
+        if (!docEl) return false;
+        const viewportBottom = (window.scrollY || window.pageYOffset || 0) + getViewportHeight();
+        return viewportBottom >= docEl.scrollHeight - offset;
+      }
+
+      const el = resolveElementRef(container);
+      if (!el) return false;
+      const scrollTop = el.scrollTop || 0;
+      const clientHeight = el.clientHeight || 0;
+      const scrollHeight = el.scrollHeight || 0;
+      if (scrollHeight <= clientHeight + 1) return false; // nothing to scroll yet
+      return scrollTop + clientHeight >= scrollHeight - offset;
+    }
+
+    function applyScrollableClasses(container) {
+      if (!container) return;
+      container.classList.add(SCROLLABLE_CLASS, SCROLLABLE_LEGACY_CLASS);
+    }
+
+    function removeScrollableClasses(container) {
+      if (!container) return;
+      container.classList.remove(SCROLLABLE_CLASS, SCROLLABLE_LEGACY_CLASS);
+    }
+
+    /** Gives `container` an explicit, viewport-relative height and
+     *  overflow-y so it's a genuine scrollable region regardless of how
+     *  much content has loaded, keeps that height in sync on resize, and
+     *  (optionally) wires a plain scroll-event fallback via onNearBottom -
+     *  the same createScrollableTable Asset Requisition already relies on,
+     *  generalized here to not require an actual <table> inside (this page
+     *  wraps a grid/table dual view instead of a single table). */
+    function createScrollableTable(options) {
+      const config = options || {};
+      const container = resolveElementRef(config.container || config.wrap || config.element);
+      if (!container) throw new Error("createScrollableTable requires a container element or selector.");
+
+      applyScrollableClasses(container);
+      // overflow-y is forced inline rather than left to the CSS class alone,
+      // since this page's own stylesheet may not define that class - the
+      // class names are applied too in case the shared global.css already
+      // styles them (same convention Asset Requisition uses), but the
+      // scrolling behavior itself must not depend on that.
+      container.style.overflowY = "auto";
+      container.style.overflowX = container.style.overflowX || "hidden";
+
+      let unbindHeightRefresh = null;
+
+      function applyHeight() {
+        const nextHeight = calcViewportAvailableHeight({
+          anchor: config.anchor || container,
+          offsetTop: config.offsetTop,
+          bottomGap: config.bottomGap,
+          minHeight: config.minHeight,
+          maxHeight: config.maxHeight
+        });
+        const heightPx = `${nextHeight}px`;
+        container.style.height = heightPx;
+        container.style.maxHeight = heightPx;
+        return nextHeight;
+      }
+
+      function bindHeightRefresh() {
+        if (unbindHeightRefresh) return;
+        const refresh = () => applyHeight();
+        window.addEventListener("resize", refresh, { passive: true });
+        unbindHeightRefresh = () => window.removeEventListener("resize", refresh);
+        if (typeof ResizeObserver === "function") {
+          const observer = new ResizeObserver(refresh);
+          if (container.parentElement) observer.observe(container.parentElement);
+          const previousUnbind = unbindHeightRefresh;
+          unbindHeightRefresh = () => {
+            previousUnbind();
+            observer.disconnect();
+          };
+        }
+      }
+
+      bindHeightRefresh();
+      applyHeight();
+
+      let scrollHandler = null;
+      if (typeof config.onNearBottom === "function") {
+        const offsetPx = config.loadMoreOffsetPx || config.offsetPx;
+        const onNearBottom = config.onNearBottom;
+        let bound = false;
+        const check = () => {
+          if (isContainerNearBottom(container, offsetPx)) onNearBottom();
+        };
+        scrollHandler = {
+          connect: () => {
+            if (bound) return;
+            container.addEventListener("scroll", check, { passive: true });
+            bound = true;
+          },
+          disconnect: () => {
+            if (!bound) return;
+            container.removeEventListener("scroll", check);
+            bound = false;
+          },
+          check
+        };
+        scrollHandler.connect();
+      }
+
+      return {
+        container,
+        getScrollContainer: () => container,
+        refresh: () => applyHeight(),
+        checkScroll: () => {
+          if (scrollHandler) scrollHandler.check();
+        },
+        destroy: () => {
+          if (scrollHandler) scrollHandler.disconnect();
+          if (unbindHeightRefresh) unbindHeightRefresh();
+          removeScrollableClasses(container);
+          container.style.height = "";
+          container.style.maxHeight = "";
+          container.style.overflowY = "";
+        }
+      };
+    }
+
+    /** Generic infinite-scroll engine, decoupled from this page's data
+     *  source via the fetchPage(page, pageSize, signal) => Promise<{rows,
+     *  totalRecords?}> callback. Tracks its own page/accumulated-rows/
+     *  hasMore/isLoading state; exposes loadNext/reset/connect/disconnect/
+     *  destroy/getState. */
+    function createInfinitePager(options) {
+      const opts = options || {};
+      const pageSize = Number(opts.pageSize) || 20;
+      const loadMoreOffsetPx = Number(opts.loadMoreOffsetPx) || 200;
+      const rootMargin = String(opts.rootMargin || `${loadMoreOffsetPx}px 0px`);
+      const fetchPage = opts.fetchPage;
+      const dedupeBy = typeof opts.dedupeBy === "function" ? opts.dedupeBy : null;
+      const onRows = typeof opts.onRows === "function" ? opts.onRows : function () {};
+      const onError = typeof opts.onError === "function" ? opts.onError : function () {};
+      const onState = typeof opts.onState === "function" ? opts.onState : function () {};
+
+      let page = 1;
+      let rows = [];
+      let hasMore = true;
+      let isLoading = false;
+      let totalRecords = 0;
+      let requestToken = 0;
+      let abortController = null;
+      let sentinelObserver = null;
+      let scrollContainer = opts.scrollContainer || window;
+      let connected = false;
+
+      function emitState() {
+        onState({ isLoading, hasMore, page, totalRecords, rowCount: rows.length });
+      }
+
+      function appendUnique(existingRows, incomingRows) {
+        if (!dedupeBy) return existingRows.concat(incomingRows);
+        const seen = new Set(existingRows.map(dedupeBy));
+        const merged = existingRows.slice();
+        incomingRows.forEach((row) => {
+          const key = dedupeBy(row);
+          if (key != null && seen.has(key)) return;
+          if (key != null) seen.add(key);
+          merged.push(row);
+        });
+        return merged;
+      }
+
+      async function loadNext() {
+        if (isLoading || !hasMore) return; // guard against overlapping/duplicate fetches
+        isLoading = true;
+        emitState();
+        if (abortController) abortController.abort();
+        abortController = new AbortController();
+        const token = ++requestToken;
+        try {
+          const result = await fetchPage(page, pageSize, abortController.signal);
+          if (token !== requestToken) return; // a newer reset/loadNext superseded this one
+          const newRows = (result && result.rows) || [];
+          totalRecords = Number(result && result.totalRecords) || totalRecords;
+          rows = appendUnique(rows, newRows);
+          // Exact when the workflow returns TotalRecords; falls back to the
+          // "got a full page, assume there's more" heuristic otherwise.
+          hasMore = totalRecords > 0 ? page * pageSize < totalRecords : newRows.length >= pageSize;
+          if (hasMore) page += 1;
+          onRows(rows.slice(), { totalRecords, hasMore, page });
+        } catch (error) {
+          if (error && error.name === "AbortError") return;
+          onError(error);
+        } finally {
+          if (token === requestToken) {
+            isLoading = false;
+            emitState();
+          }
+        }
+      }
+
+      /** Used whenever the underlying query changes (a filter switch, or a
+       *  forced data refresh): clears rows, resets to page 1, sets hasMore
+       *  true, and (by default) immediately fetches page 1 again. */
+      function reset(resetOptions) {
+        const ro = resetOptions || {};
+        if (abortController) abortController.abort();
+        requestToken += 1; // invalidate any in-flight response so it can't land after this reset
+        page = 1;
+        rows = [];
+        hasMore = true;
+        totalRecords = 0;
+        isLoading = false;
+        onRows(rows.slice(), { totalRecords, hasMore, page });
+        emitState();
+        if (ro.autoLoad !== false) loadNext();
+      }
+
+      function onScrollCheck() {
+        if (!hasMore || isLoading) return;
+        if (isContainerNearBottom(scrollContainer, loadMoreOffsetPx)) loadNext();
+      }
+
+      /** Attaches an IntersectionObserver on opts.sentinel when available
+       *  (the primary, more efficient mechanism - fires as soon as the
+       *  sentinel is within rootMargin of the container's viewport, which
+       *  is what makes the very first page auto-load without requiring an
+       *  actual scroll if the sentinel starts out visible), plus a plain
+       *  scroll-event listener on the scroll container as a fallback. */
+      function connect() {
+        disconnect();
+        if (opts.sentinel && "IntersectionObserver" in window) {
+          const root = isWindowScrollContainer(scrollContainer) ? null : resolveElementRef(scrollContainer);
+          sentinelObserver = new IntersectionObserver(
+            (entries) => {
+              if (entries.some((entry) => entry.isIntersecting)) loadNext();
+            },
+            { root, rootMargin, threshold: 0 }
+          );
+          sentinelObserver.observe(opts.sentinel);
+        }
+        if (scrollContainer && typeof scrollContainer.addEventListener === "function") {
+          scrollContainer.addEventListener("scroll", onScrollCheck, { passive: true });
+        }
+        connected = true;
+      }
+
+      function disconnect() {
+        if (sentinelObserver) {
+          sentinelObserver.disconnect();
+          sentinelObserver = null;
+        }
+        if (scrollContainer && typeof scrollContainer.removeEventListener === "function") {
+          scrollContainer.removeEventListener("scroll", onScrollCheck);
+        }
+        connected = false;
+      }
+
+      function destroy() {
+        disconnect();
+        if (abortController) abortController.abort();
+      }
+
+      function getState() {
+        return { page, pageSize, rows: rows.slice(), hasMore, isLoading, totalRecords };
+      }
+
+      return {
+        loadNext,
+        reset,
+        connect,
+        disconnect,
+        destroy,
+        getState,
+        setScrollContainer: (nextContainer) => {
+          const shouldReconnect = connected;
+          disconnect();
+          scrollContainer = nextContainer || window;
+          if (shouldReconnect) connect();
+        }
+      };
+    }
+
+    return { createScrollableTable, createInfinitePager };
+  })();
+
+  /** Prefers window.QafLibrary's implementation of a given pager helper;
+   *  falls back to the local copy above only when the shared library
+   *  doesn't expose that function yet - same pattern Asset Requisition
+   *  uses, so this page benefits from a shared, more tested implementation
+   *  if one becomes available without needing its own code to change. */
+  function getPagerFn(name) {
+    if (window.QafLibrary && typeof window.QafLibrary[name] === "function") {
+      return window.QafLibrary[name];
+    }
+    return AssetInventoryPagerFallback[name];
   }
 
   /** The status columns are now fixed (RNSP_STATUS_FIELDS/LABELS) rather than
@@ -1045,18 +1493,14 @@
    *  truth for both the unfiltered and any filtered view - there's no cached
    *  "unfiltered baseline" to instantly restore from anymore, so Clear
    *  Filters costs one more round trip than it used to. */
-  async function applyActiveFiltersAndRefresh() {
-    setBusy(true);
-    clearError();
-    try {
-      state.inventoryRows = await fetchInventorySummaryByRnsp();
-    } catch (error) {
-      if (error && error.name === "AbortError") return; // superseded by a newer selection - that call will render instead
-      showError(`Unable to apply filters. ${formatFetchError(error)}`);
-      state.inventoryRows = [];
-    }
-    renderFromState();
-    setBusy(false);
+  /** Clears accumulated rows, goes back to page 1, and refetches - used at
+   *  every point that changes which assets should be shown (Clear Filters,
+   *  Apply Filters, Type dropdown). Replaces the old click-pagination
+   *  applyActiveFiltersAndRefresh - the pager's own onRows/onState/onError
+   *  (set up in ensureInventoryPager) now do what that function used to do
+   *  by hand. */
+  function resetInventoryPager() {
+    ensureInventoryPager().reset({ autoLoad: true });
   }
 
   /*
@@ -1460,7 +1904,7 @@
         state.activeFilters = {};
         renderFilterFields();
         closeFilterModal();
-        applyActiveFiltersAndRefresh();
+        resetInventoryPager();
       });
     }
     if (ui.applyFiltersBtn && !ui.applyFiltersBtn.__invenFilterBound) {
@@ -1469,7 +1913,7 @@
         readFilterDraftFromDom();
         applyFilterDraft();
         closeFilterModal();
-        applyActiveFiltersAndRefresh();
+        resetInventoryPager();
       });
     }
     if (!document.__invenFilterOutsideClickBound) {
@@ -1500,6 +1944,105 @@
     ui.filterFields = document.getElementById("filterFields");
     ui.clearFiltersBtn = document.getElementById("clearFiltersBtn");
     ui.applyFiltersBtn = document.getElementById("applyFiltersBtn");
+    ensureScrollLoader();
+  }
+
+  /** Creates the "Loading more records..." indicator + IntersectionObserver
+   *  sentinel the first time it's needed - there is no existing markup for
+   *  this in the page, so it's built at runtime and appended right after the
+   *  grid/table content in normal document flow, reusing no new styling
+   *  beyond basic centering so it visually blends in. Idempotent - safe to
+   *  call on every bindUiRefs(). */
+  function ensureScrollLoader() {
+    if (ui.scrollSentinel) return ui.scrollSentinel;
+    if (!ui.page) return null;
+
+    const wrap = document.createElement("div");
+    wrap.id = "assetInventoryScrollLoader";
+    wrap.style.textAlign = "center";
+    wrap.style.padding = "12px 0";
+
+    const text = document.createElement("div");
+    text.id = "assetInventoryScrollLoaderText";
+    text.setAttribute("aria-live", "polite");
+    text.style.display = "none";
+    text.textContent = "Loading more records...";
+
+    // Marker the IntersectionObserver watches, sitting right after the
+    // grid/table content in normal document flow so it enters the browser's
+    // actual viewport once the user scrolls down to it. The scroll-event
+    // fallback (onScrollCheck, inside createInfinitePager) doesn't need it,
+    // but keeping both mechanisms means loading still works even if
+    // IntersectionObserver is ever unavailable.
+    const sentinel = document.createElement("div");
+    sentinel.id = "assetInventoryScrollSentinel";
+    sentinel.style.height = "1px";
+
+    wrap.appendChild(text);
+    wrap.appendChild(sentinel);
+    ui.page.appendChild(wrap);
+
+    ui.scrollLoaderWrap = wrap;
+    ui.scrollLoaderText = text;
+    ui.scrollSentinel = sentinel;
+    return sentinel;
+  }
+
+  /** Shows/hides the "Loading more records..." indicator - only while
+   *  fetching a page beyond the first (the first page's loading state is the
+   *  empty-state text instead, see renderCards/renderTableView). */
+  function renderScrollLoader() {
+    ensureScrollLoader();
+    if (!ui.scrollLoaderText) return;
+    const pagerState = state.pager || {};
+    const loadingMore = Boolean(pagerState.isLoading) && Number(pagerState.rowCount) > 0;
+    ui.scrollLoaderText.style.display = loadingMore ? "block" : "none";
+  }
+
+  let inventoryPager = null;
+
+  /** The single infinite-scroll pager instance for this page - there's one
+   *  active filter combination at a time here (no multiple simultaneously-
+   *  cached filter tabs), so filter changes call reset() on this same
+   *  instance rather than creating/switching between several pagers. */
+  function ensureInventoryPager() {
+    if (inventoryPager) return inventoryPager;
+    ensureScrollLoader();
+    inventoryPager = getPagerFn("createInfinitePager")({
+      pageSize: 20,
+      loadMoreOffsetPx: 200,
+      scrollContainer: window,
+      sentinel: ui.scrollSentinel,
+      dedupeBy: (row) => (row && (row.CategoryRecordID || row.Category)) || null,
+      fetchPage: fetchAssetInventoryPage,
+      onRows: (rows) => {
+        state.inventoryRows = rows;
+        renderFromState();
+      },
+      onError: (error) => {
+        showError(`Unable to load asset inventory. ${formatFetchError(error)}`);
+      },
+      onState: (pagerState) => {
+        state.pager = pagerState;
+        if (pagerState.isLoading && pagerState.rowCount === 0) {
+          // First page of a fresh view (initial load, or right after a
+          // filter reset) - full loading state, same as before.
+          setBusy(true);
+          renderFromState(); // lets the empty state show "Loading records..." before any rows exist
+        } else if (!pagerState.isLoading) {
+          setBusy(false);
+          // Loading just finished - re-render regardless of outcome. Without
+          // this, a fetch that resolves with zero rows (or rows that don't
+          // map to any card) left the screen stuck on "Loading records..."
+          // forever, since onRows is only what swaps in real cards and it
+          // has nothing to show when there's nothing to render.
+          renderFromState();
+        }
+        renderScrollLoader();
+      }
+    });
+    inventoryPager.connect();
+    return inventoryPager;
   }
 
   function renderTypeFilter() {
@@ -1572,13 +2115,23 @@
     // dropdown itself feels instant (its own label/highlight, not the cards),
     // then refresh from RNSP with AssetTypeFilter set to the new selection.
     renderTypeFilter();
-    applyActiveFiltersAndRefresh();
+    resetInventoryPager();
+  }
+
+  /** "No data found." normally, but "Loading records..." specifically while
+   *  the pager's very first fetch for the current filters is still in
+   *  flight (rowCount === 0 && isLoading) - avoids a misleading empty-state
+   *  flash before any rows have arrived yet. */
+  function getEmptyStateMessage() {
+    const pagerState = state.pager || {};
+    if (pagerState.isLoading && !pagerState.rowCount) return "Loading records...";
+    return "No data found.";
   }
 
   function renderCards(cards) {
     if (!ui.assetGrid) return;
     if (!cards.length) {
-      ui.assetGrid.innerHTML = '<div class="empty-state">No data found.</div>';
+      ui.assetGrid.innerHTML = `<div class="empty-state">${escapeHtml(getEmptyStateMessage())}</div>`;
       return;
     }
     const statusColumns = getActiveStatusColumns(cards);
@@ -1729,7 +2282,7 @@
   function renderTableView(cards) {
     if (!ui.assetTableView) return;
     if (!cards.length) {
-      ui.assetTableView.innerHTML = '<div class="empty-state">No data found.</div>';
+      ui.assetTableView.innerHTML = `<div class="empty-state">${escapeHtml(getEmptyStateMessage())}</div>`;
       return;
     }
     const columns = getTableColumns(cards);
@@ -1911,45 +2464,24 @@
     if (state.isLoading) return;
     if (!force && state.lastLoadedAt) return;
     state.isLoading = true;
-    setBusy(true);
     clearError();
-    // A forced reload (e.g. after adding a new asset) must never be served
-    // a stale cached count for the current filter combination.
-    inventoryResponseCache.clear();
-    const errors = [];
+    // Status columns are fixed (RNSP_STATUS_FIELDS/LABELS), not discovered
+    // from data, so this only ever needs setting once.
+    state.statusColumns = getFixedRnspStatusColumns();
 
-    // CategoryRecordID, TypeRecordID and Icon all come from RNSP's own
-    // response now (see getCardsFromRnspRows) - no separate lookup needed.
-    // Asset Type dropdown options are intentionally not fetched here either
-    // - see ensureAssetTypeOptionsLoaded, called lazily when the Type
-    // dropdown is first opened, and cached afterward.
-    let rnspResult;
-    try {
-      const rows = await fetchInventorySummaryByRnsp();
-      rnspResult = { status: "fulfilled", value: rows };
-    } catch (error) {
-      rnspResult = { status: "rejected", reason: error };
-    }
-
-    if (rnspResult.status === "fulfilled") {
-      state.inventoryRows = Array.isArray(rnspResult.value) ? rnspResult.value : [];
-      state.statusColumns = getFixedRnspStatusColumns();
-    } else if (rnspResult.reason && rnspResult.reason.name === "AbortError") {
-      // Superseded by a Type/filter selection made before this load
-      // finished - that selection's own applyActiveFiltersAndRefresh call
-      // will fetch and render the correct data, so this is not an error.
-      state.statusColumns = getFixedRnspStatusColumns();
-    } else {
-      errors.push(`Asset inventory: ${formatFetchError(rnspResult.reason)}`);
-      state.inventoryRows = [];
-      state.statusColumns = getFixedRnspStatusColumns();
-    }
-
-    if (errors.length) showError(errors.join(" | "));
-    state.isLoading = false;
-    setBusy(false);
+    const pager = ensureInventoryPager();
+    const isFirstLoad = !state.lastLoadedAt;
     state.lastLoadedAt = Date.now();
-    renderFromState();
+    state.isLoading = false;
+
+    if (isFirstLoad) {
+      pager.loadNext();
+    } else {
+      // A forced reload (e.g. after adding a new asset) must never keep
+      // showing a stale accumulated list for the current filter combination
+      // - clear and refetch from page 1, same as a filter change.
+      pager.reset({ autoLoad: true });
+    }
   }
 
   // Type filter behavior: open/close, type-to-filter and commit. The floating
