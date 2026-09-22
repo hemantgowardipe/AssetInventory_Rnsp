@@ -31,6 +31,23 @@
   const PAGE_ACCESS_NEW_LP = ["11", "22-3", "22-1", "22-2"];
   const ADD_ACCESS_NEW_LP = ["11", "22-3"];
 
+  // --- Import Assets (CSV) ---------------------------------------------
+  // Workflow invoked via POST {base_url}/api/rnsp with
+  //   { "Name": IMPORT_WORKFLOW_NAME, "Args": { "Category": "<category>", "Records": "<json array string>" } }
+  // All field-matching (which CSV columns land in EAsset_Master vs. the
+  // category's child table), the SerialNumber-based upsert, AssetID
+  // auto-unique number generation, and the child table's ParentRecordID
+  // linkage are handled entirely by that workflow's SQL - see the
+  // accompanying Import_Asset.sql. This page only parses the CSV, groups
+  // rows by Category and sends them in batches of IMPORT_BATCH_SIZE.
+  //
+  // AssetID is never sent from here: it's an auto-unique field the SQL
+  // generates itself (from FieldDefinition.AUFieldCurrentNumber) for
+  // brand-new rows only, one fresh batch-sized reservation per call - the
+  // CSV has no AssetID column and this page doesn't need to know about it.
+  const IMPORT_WORKFLOW_NAME = "Import_Asset";
+  const IMPORT_BATCH_SIZE = 200;
+
   const ui = {
     page: null,
     assetGrid: null,
@@ -49,6 +66,21 @@
     filterFields: null,
     clearFiltersBtn: null,
     applyFiltersBtn: null,
+    // Import Assets popup.
+    importAssetsBtn: null,
+    importModalOverlay: null,
+    importCloseBtn: null,
+    importCancelBtn: null,
+    importSubmitBtn: null,
+    importDropzone: null,
+    importDropzoneText: null,
+    importCsvInput: null,
+    importFileInfo: null,
+    importErrorMsg: null,
+    importProgress: null,
+    importProgressFill: null,
+    importProgressText: null,
+    importSummaryList: null,
     // Infinite scroll - created at runtime (see ensureScrollLoader), no
     // existing markup for these before this change.
     scrollLoaderWrap: null,
@@ -83,6 +115,10 @@
     itemStatusFilterOptions: [],
     employeeOptions: [],
     assetManagerOptions: [],
+    // Import Assets popup state.
+    importParsedRows: null,
+    importFileName: "",
+    importIsRunning: false,
     // Mirrors the infinite-scroll pager's own state (see createInfinitePager/
     // ensureInventoryPager) for render-time decisions like the empty-state
     // text and the "loading more" indicator. The pager is the source of
@@ -1077,6 +1113,17 @@
       });
       const derivedTotal = RNSP_STATUS_FIELDS.reduce((sum, field) => sum + Number(flat[field] || 0), 0);
       const total = flat.GrossTotal != null && flat.GrossTotal !== "" ? Number(flat.GrossTotal) || 0 : derivedTotal;
+      // RNSP returns a row for every category regardless of whether any
+      // assets actually match the current filter combination - an all-zero
+      // row (every status count and GrossTotal at 0) means there's nothing
+      // to show for this category under the active filters, so it's
+      // trimmed here rather than rendering an empty "0" card.
+      // An all-zero row only means "nothing matches the current filter" -
+      // it's not noise in the fully default view (no Type, no Funnel
+      // Filter active), where a category genuinely having zero assets right
+      // now is real information worth showing. Only trimmed once some
+      // filter has actually narrowed the view.
+      if (total <= 0 && isAnyInventoryFilterActive()) return;
 
       // CategoryRecordID/TypeRecordID now come straight from RNSP - no more
       // side lookup against EAsset_Category needed for these.
@@ -1400,6 +1447,17 @@
 
   function hasActiveFilters() {
     return Object.keys(state.activeFilters).length > 0;
+  }
+
+  /** True once ANY filter has narrowed the view - the Type toolbar dropdown
+   *  (state.selectedType, blank = "All Types") or any Funnel Filter modal
+   *  field (state.activeFilters). Used to decide whether an all-zero row
+   *  from RNSP is real information (nothing selected, category genuinely
+   *  empty) or noise (some filter is active and this category just has no
+   *  matches under it) - see getCardsFromRnspRows. */
+  function isAnyInventoryFilterActive() {
+    if (String(state.selectedType || "").trim()) return true;
+    return hasActiveFilters();
   }
 
   /** Name of the workflow that supplies every Funnel Filter dropdown's
@@ -1903,7 +1961,6 @@
         state.filterDraft = {};
         state.activeFilters = {};
         renderFilterFields();
-        closeFilterModal();
         resetInventoryPager();
       });
     }
@@ -1944,6 +2001,23 @@
     ui.filterFields = document.getElementById("filterFields");
     ui.clearFiltersBtn = document.getElementById("clearFiltersBtn");
     ui.applyFiltersBtn = document.getElementById("applyFiltersBtn");
+
+    // Import Assets modal
+    ui.importAssetsBtn = document.getElementById("importAssetsBtn");
+    ui.importModalOverlay = document.getElementById("importModalOverlay");
+    ui.importCloseBtn = document.getElementById("importCloseBtn");
+    ui.importCancelBtn = document.getElementById("importCancelBtn");
+    ui.importSubmitBtn = document.getElementById("importSubmitBtn");
+    ui.importDropzone = document.getElementById("importDropzone");
+    ui.importDropzoneText = document.getElementById("importDropzoneText");
+    ui.importCsvInput = document.getElementById("importCsvInput");
+    ui.importFileInfo = document.getElementById("importFileInfo");
+    ui.importErrorMsg = document.getElementById("importErrorMsg");
+    ui.importProgress = document.getElementById("importProgress");
+    ui.importProgressFill = document.getElementById("importProgressFill");
+    ui.importProgressText = document.getElementById("importProgressText");
+    ui.importSummaryList = document.getElementById("importSummaryList");
+
     ensureScrollLoader();
   }
 
@@ -2378,6 +2452,468 @@
     URL.revokeObjectURL(url);
   }
 
+  /*
+   * ---------------------------------------------------------------------
+   * Import Assets (CSV) - popup, CSV parsing, batching and the api/rnsp
+   * calls that hand each batch off to the Import_Asset workflow. See
+   * Import_Asset.sql for the SQL that matches CSV columns against
+   * EAsset_Master / the category's child table and does the actual
+   * insert/update, keyed on SerialNumber.
+   * ---------------------------------------------------------------------
+   */
+
+  /** Minimal RFC4180 CSV parser: handles quoted fields (including embedded
+   *  commas, newlines and escaped "" quotes) and both \r\n and \n line
+   *  endings. Returns { headers, rows } where each row is a plain
+   *  { headerName: cellValue } object built from the raw header text - no
+   *  column name is assumed here, so the file can carry any EAsset_Master
+   *  field name plus any category-specific child-table field name and both
+   *  are preserved as-is for the SQL side to match. */
+  function parseCsvText(text) {
+    const content = String(text == null ? "" : text).replace(/^﻿/, "");
+    const rows = [];
+    let row = [];
+    let field = "";
+    let inQuotes = false;
+    let i = 0;
+    const len = content.length;
+
+    function pushField() {
+      row.push(field);
+      field = "";
+    }
+    function pushRow() {
+      pushField();
+      rows.push(row);
+      row = [];
+    }
+
+    while (i < len) {
+      const ch = content[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (content[i + 1] === '"') {
+            field += '"';
+            i += 2;
+            continue;
+          }
+          inQuotes = false;
+          i += 1;
+          continue;
+        }
+        field += ch;
+        i += 1;
+        continue;
+      }
+      if (ch === '"') {
+        inQuotes = true;
+        i += 1;
+        continue;
+      }
+      if (ch === ",") {
+        pushField();
+        i += 1;
+        continue;
+      }
+      if (ch === "\r") {
+        i += 1;
+        continue;
+      }
+      if (ch === "\n") {
+        pushRow();
+        i += 1;
+        continue;
+      }
+      field += ch;
+      i += 1;
+    }
+    // Trailing field/row (files without a final newline).
+    if (field.length || row.length) pushRow();
+
+    // Drop fully blank trailing rows a trailing newline can produce.
+    while (rows.length && rows[rows.length - 1].every((cell) => toText(cell) === "")) {
+      rows.pop();
+    }
+    if (!rows.length) return { headers: [], rows: [] };
+
+    const headers = rows[0].map((h) => toText(h));
+    const dataRows = rows.slice(1).map((cells) => {
+      const obj = {};
+      headers.forEach((header, idx) => {
+        if (!header) return;
+        obj[header] = cells[idx] == null ? "" : cells[idx];
+      });
+      return obj;
+    });
+    return { headers, rows: dataRows };
+  }
+
+  function findCsvCategoryHeader(headers) {
+    return (Array.isArray(headers) ? headers : []).find((h) => normalizeToken(h) === "category") || "";
+  }
+
+  /** Validates a parsed CSV against what the Import flow needs: a Category
+   *  column (used to route each row to its child table - see Import_Asset.sql)
+   *  and at least one data row. SerialNumber is not checked client-side -
+   *  Import_Asset.sql rejects any row with a blank/missing Serial Number
+   *  (it's the sole unique key for an asset) and reports it back per-row as
+   *  Status='failed', which runImport() surfaces in the summary. */
+  function validateParsedCsvForImport(parsed) {
+    if (!parsed || !Array.isArray(parsed.headers) || !parsed.headers.length) {
+      return { valid: false, reason: "The file does not look like a CSV (no header row found)." };
+    }
+    if (!findCsvCategoryHeader(parsed.headers)) {
+      return { valid: false, reason: 'The CSV must include a "Category" column.' };
+    }
+    if (!Array.isArray(parsed.rows) || !parsed.rows.length) {
+      return { valid: false, reason: "The CSV has a header row but no data rows." };
+    }
+    return { valid: true, reason: "" };
+  }
+
+  /** Groups parsed CSV rows by their Category value, case-insensitively -
+   *  "Desktop", "DESKTOP" and "desktop" all land in the same group and are
+   *  batched together, using whichever casing appeared first in the file as
+   *  the Category value sent to api/rnsp for that group (Import_Asset.sql
+   *  itself also matches Category case-insensitively via UPPER() when
+   *  resolving the child table, so any casing works there). Rows with a
+   *  blank Category are NOT skipped - they get their own group with an empty
+   *  Category, sent through the same way; Import_Asset.sql treats a blank
+   *  Category exactly like an unrecognised one (e.g. "CPU") and imports the
+   *  row into EAsset_Master only, with no child table to write into. */
+  function groupCsvRowsByCategory(parsed) {
+    const categoryHeader = findCsvCategoryHeader(parsed.headers);
+    const groups = new Map(); // key: UPPERCASE category ("" for blank) -> { display, rows }
+    parsed.rows.forEach((row) => {
+      const category = toText(row[categoryHeader]);
+      const key = category ? category.toUpperCase() : "";
+      if (!groups.has(key)) groups.set(key, { display: category, rows: [] });
+      groups.get(key).rows.push(row);
+    });
+    return { groups };
+  }
+
+  function chunkArray(list, size) {
+    const chunks = [];
+    for (let i = 0; i < list.length; i += size) {
+      chunks.push(list.slice(i, i + size));
+    }
+    return chunks;
+  }
+
+  /** Sends one batch (up to IMPORT_BATCH_SIZE rows, all the same Category)
+   *  to the Import_Asset workflow. Records travel as a JSON-encoded string
+   *  (Args.Records), matching how this platform passes structured workflow
+   *  parameters (see Import_Asset.sql for how it's read back with OPENJSON).
+   *  Returns the per-row result set the script's final SELECT produces -
+   *  [{RowIdx, SerialNumber, RecordID, Status, Reason}, ...] - normalized the
+   *  same tolerant way ASSET_INVENTORY_RNSP's own response is (bare array or
+   *  wrapped in data/result/Records), since this is the same /api/rnsp
+   *  endpoint. A batch call returning HTTP 200 only means the SQL ran
+   *  without a fatal RAISERROR - it does NOT mean every row in the batch was
+   *  actually written; some rows can still come back Status='failed' (e.g.
+   *  missing a Required column) while the rest of the batch succeeds. The
+   *  caller (runImport) is what turns this into an honest per-row count. */
+  async function sendImportBatch(category, batchRows) {
+    const args = {
+      Category: category,
+      Records: JSON.stringify(batchRows)
+    };
+    const response = await postJson(buildRnspUrl(), { Name: IMPORT_WORKFLOW_NAME, Args: args });
+    return normalizeAssetInventoryResponse(response);
+  }
+
+  function setImportSubmitEnabled(enabled) {
+    if (ui.importSubmitBtn) ui.importSubmitBtn.disabled = !enabled;
+  }
+
+  function showImportError(message) {
+    if (!ui.importErrorMsg) return;
+    if (!message) {
+      ui.importErrorMsg.hidden = true;
+      ui.importErrorMsg.textContent = "";
+      return;
+    }
+    ui.importErrorMsg.hidden = false;
+    ui.importErrorMsg.textContent = message;
+  }
+
+  function setImportFileInfo(text) {
+    if (!ui.importFileInfo) return;
+    if (!text) {
+      ui.importFileInfo.hidden = true;
+      ui.importFileInfo.textContent = "";
+      return;
+    }
+    ui.importFileInfo.hidden = false;
+    ui.importFileInfo.textContent = text;
+  }
+
+  function setImportProgress(done, total) {
+    if (!ui.importProgress || !ui.importProgressFill || !ui.importProgressText) return;
+    if (!total) {
+      ui.importProgress.hidden = true;
+      return;
+    }
+    ui.importProgress.hidden = false;
+    const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+    ui.importProgressFill.style.width = `${pct}%`;
+    ui.importProgressText.textContent = `Importing batch ${done} of ${total}...`;
+  }
+
+  function clearImportSummary() {
+    if (!ui.importSummaryList) return;
+    ui.importSummaryList.innerHTML = "";
+    ui.importSummaryList.hidden = true;
+  }
+
+  function appendImportSummaryLine(text, isError) {
+    if (!ui.importSummaryList) return;
+    ui.importSummaryList.hidden = false;
+    const li = document.createElement("li");
+    if (isError) li.classList.add("is-error");
+    li.textContent = text;
+    ui.importSummaryList.appendChild(li);
+    ui.importSummaryList.scrollTop = ui.importSummaryList.scrollHeight;
+  }
+
+  function resetImportModalState() {
+    state.importParsedRows = null;
+    state.importFileName = "";
+    state.importIsRunning = false;
+    if (ui.importCsvInput) ui.importCsvInput.value = "";
+    if (ui.importDropzoneText) ui.importDropzoneText.textContent = "Click to choose a CSV file, or drag and drop it here";
+    setImportFileInfo("");
+    showImportError("");
+    setImportProgress(0, 0);
+    clearImportSummary();
+    setImportSubmitEnabled(false);
+  }
+
+  function openImportModal() {
+    resetImportModalState();
+    if (ui.importModalOverlay) ui.importModalOverlay.hidden = false;
+    if (ui.importAssetsBtn) ui.importAssetsBtn.setAttribute("aria-expanded", "true");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeImportModal() {
+    if (state.importIsRunning) return; // Don't let the popup close mid-import.
+    if (ui.importModalOverlay) ui.importModalOverlay.hidden = true;
+    if (ui.importAssetsBtn) ui.importAssetsBtn.setAttribute("aria-expanded", "false");
+    document.body.style.overflow = "";
+  }
+
+  /** Reads + parses the chosen file and updates the popup accordingly. The
+   *  Import button (ui.importSubmitBtn) only becomes enabled once this
+   *  resolves to a valid CSV, per the requirements doc. */
+  function handleImportFileSelected(file) {
+    showImportError("");
+    setImportSubmitEnabled(false);
+    state.importParsedRows = null;
+    if (!file) {
+      setImportFileInfo("");
+      return;
+    }
+    const isCsv = /\.csv$/i.test(file.name) || /csv/i.test(file.type || "");
+    if (!isCsv) {
+      setImportFileInfo("");
+      showImportError("Please choose a .csv file.");
+      return;
+    }
+    state.importFileName = file.name;
+    setImportFileInfo(`Selected: ${file.name}`);
+    const reader = new FileReader();
+    reader.onerror = () => {
+      showImportError("Could not read that file.");
+    };
+    reader.onload = () => {
+      const parsed = parseCsvText(String(reader.result || ""));
+      const validation = validateParsedCsvForImport(parsed);
+      if (!validation.valid) {
+        showImportError(validation.reason);
+        return;
+      }
+      state.importParsedRows = parsed;
+      setImportFileInfo(`Selected: ${file.name} (${parsed.rows.length} row${parsed.rows.length === 1 ? "" : "s"})`);
+      setImportSubmitEnabled(true);
+    };
+    reader.readAsText(file);
+  }
+
+  /** Groups the parsed CSV by Category, batches each group into
+   *  IMPORT_BATCH_SIZE-row chunks and sends them to api/rnsp one batch at a
+   *  time (sequential, so the progress bar and summary list reflect exactly
+   *  what has actually been sent so far). */
+  /** Tallies a batch's per-row failure reasons (e.g. "Serial Number is
+   *  required") into a compact "Reason (count)" string for the summary
+   *  line, instead of listing every failed row individually. */
+  function summarizeImportFailureReasons(rows) {
+    const counts = new Map();
+    rows.forEach((r) => {
+      if (String(r.Status || r.status || "").toLowerCase() === "ok") return;
+      const reason = toText(r.Reason || r.reason) || "Unknown reason";
+      counts.set(reason, (counts.get(reason) || 0) + 1);
+    });
+    return [...counts.entries()].map(([reason, count]) => `${reason} (${count})`).join(", ");
+  }
+
+  async function runImport() {
+    if (state.importIsRunning) return;
+    const parsed = state.importParsedRows;
+    if (!parsed) return;
+    const { groups } = groupCsvRowsByCategory(parsed);
+    const batchJobs = [];
+    groups.forEach((group) => {
+      const categoryChunks = chunkArray(group.rows, IMPORT_BATCH_SIZE);
+      categoryChunks.forEach((batch, idx) => {
+        batchJobs.push({ category: group.display, batch, batchIndex: idx + 1, batchCount: categoryChunks.length });
+      });
+    });
+
+    if (!batchJobs.length) {
+      showImportError("No data rows were found to import.");
+      return;
+    }
+
+    state.importIsRunning = true;
+    setImportSubmitEnabled(false);
+    if (ui.importCancelBtn) ui.importCancelBtn.disabled = true;
+    showImportError("");
+    clearImportSummary();
+
+    let completed = 0;
+    let failedBatches = 0;
+    setImportProgress(0, batchJobs.length);
+
+    for (let i = 0; i < batchJobs.length; i += 1) {
+      const job = batchJobs[i];
+      const label = job.category || "(no category)";
+      try {
+        const rows = await sendImportBatch(job.category, job.batch);
+        completed += 1;
+        // rows is the SQL's own per-row [{Status, Reason}, ...] result set -
+        // a successful HTTP/SQL call doesn't mean every row in the batch was
+        // actually written (e.g. a row rejected for a blank Serial Number).
+        // When the shape isn't recognized, fall back to assuming the whole
+        // batch imported rather than reporting a misleading 0.
+        let okCount = job.batch.length;
+        let failCount = 0;
+        let reasonNote = "";
+        if (Array.isArray(rows) && rows.length) {
+          okCount = rows.filter((r) => String(r.Status || r.status || "").toLowerCase() === "ok").length;
+          failCount = rows.length - okCount;
+          if (failCount) reasonNote = ` - ${summarizeImportFailureReasons(rows)}`;
+        }
+        appendImportSummaryLine(
+          `${label}: imported ${okCount} of ${job.batch.length} record${job.batch.length === 1 ? "" : "s"} (batch ${job.batchIndex} of ${job.batchCount})` +
+            `${failCount ? `, ${failCount} skipped${reasonNote}` : ""}.`,
+          failCount > 0
+        );
+      } catch (error) {
+        failedBatches += 1;
+        appendImportSummaryLine(
+          `${label}: batch ${job.batchIndex} of ${job.batchCount} failed - ${formatFetchError(error)}`,
+          true
+        );
+      }
+      setImportProgress(i + 1, batchJobs.length);
+    }
+
+    appendImportSummaryLine(
+      `Done: ${completed} of ${batchJobs.length} batch(es) succeeded${failedBatches ? `, ${failedBatches} failed` : ""}.`
+    );
+
+    state.importIsRunning = false;
+    if (ui.importCancelBtn) ui.importCancelBtn.disabled = false;
+    setImportSubmitEnabled(false); // Re-uploading a file is required to import again.
+    state.importParsedRows = null;
+
+    // Refresh the summary/grid so newly imported assets show up without the
+    // user having to close the popup and reload the page themselves.
+    loadAndRender(true);
+  }
+
+  function bindImportModalEvents() {
+    if (ui.importAssetsBtn && !ui.importAssetsBtn.__invenImportBound) {
+      ui.importAssetsBtn.__invenImportBound = true;
+      ui.importAssetsBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        openImportModal();
+      });
+    }
+    if (ui.importCloseBtn && !ui.importCloseBtn.__invenImportBound) {
+      ui.importCloseBtn.__invenImportBound = true;
+      ui.importCloseBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        closeImportModal();
+      });
+    }
+    if (ui.importCancelBtn && !ui.importCancelBtn.__invenImportBound) {
+      ui.importCancelBtn.__invenImportBound = true;
+      ui.importCancelBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        closeImportModal();
+      });
+    }
+    if (ui.importModalOverlay && !ui.importModalOverlay.__invenImportBound) {
+      ui.importModalOverlay.__invenImportBound = true;
+      ui.importModalOverlay.addEventListener("click", (e) => {
+        if (e.target === ui.importModalOverlay) closeImportModal();
+      });
+    }
+    if (ui.importCsvInput && !ui.importCsvInput.__invenImportBound) {
+      ui.importCsvInput.__invenImportBound = true;
+      ui.importCsvInput.addEventListener("change", () => {
+        handleImportFileSelected(ui.importCsvInput.files && ui.importCsvInput.files[0]);
+      });
+    }
+    if (ui.importDropzone && !ui.importDropzone.__invenImportBound) {
+      ui.importDropzone.__invenImportBound = true;
+      ["dragenter", "dragover"].forEach((evt) => {
+        ui.importDropzone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          ui.importDropzone.classList.add("is-dragover");
+        });
+      });
+      ["dragleave", "drop"].forEach((evt) => {
+        ui.importDropzone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          ui.importDropzone.classList.remove("is-dragover");
+        });
+      });
+      ui.importDropzone.addEventListener("drop", (e) => {
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (!file) return;
+        if (ui.importCsvInput) {
+          try {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            ui.importCsvInput.files = dt.files;
+          } catch (_error) {
+            // DataTransfer construction can fail in older browsers; the file
+            // is still handled below even if the <input> itself isn't synced.
+          }
+        }
+        handleImportFileSelected(file);
+      });
+    }
+    if (ui.importSubmitBtn && !ui.importSubmitBtn.__invenImportBound) {
+      ui.importSubmitBtn.__invenImportBound = true;
+      ui.importSubmitBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        runImport();
+      });
+    }
+    if (!document.__invenImportEscBound) {
+      document.__invenImportEscBound = true;
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && ui.importModalOverlay && !ui.importModalOverlay.hidden) closeImportModal();
+      });
+    }
+  }
+
+
   function setBusy(isBusy) {
     if (ui.page) ui.page.setAttribute("aria-busy", String(isBusy));
   }
@@ -2438,6 +2974,7 @@
     if (typeof lib.applyCsSettingTheme === "function") {
       lib.applyCsSettingTheme("#assetInventoryAppHost");
       lib.applyCsSettingTheme("#filterModalOverlay");
+      lib.applyCsSettingTheme("#importModalOverlay");
     }
     if (typeof lib.applySquareButtonInverseTheme === "function") {
       lib.applySquareButtonInverseTheme("#assetInventoryAppHost");
@@ -2523,6 +3060,7 @@
     bindUiRefs();
     bindTypeFilterEvents();
     bindFilterModalEvents();
+    bindImportModalEvents();
     ui.tableViewBtn?.addEventListener("click", () => setViewMode("table"));
     ui.gridViewBtn?.addEventListener("click", () => setViewMode("grid"));
     ui.exportSummaryBtn?.addEventListener("click", exportSummaryCsv);
