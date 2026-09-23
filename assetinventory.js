@@ -506,6 +506,24 @@
     return assetTypeOptionsLoadPromise;
   }
 
+  /** Fire-and-forget kickoff of the Type list on initial page load, same
+   *  timing as demo.js's fetchTypesViaSdk (which is awaited up front in
+   *  loadAndRender there). Here the Type dropdown lazily calls
+   *  ensureAssetTypeOptionsLoaded() itself and this just starts that same
+   *  cached promise early, so state.types/typeLookupByNormalizedName are
+   *  populated before the user can click a category's Add button - without
+   *  this, resolveTypeLabelAndIdForPrefill's isKnownTypeLabel check sees an
+   *  empty state.types and strips a perfectly valid Type value that RNSP
+   *  already returned, so the new-asset form's Type field opened blank. */
+  function prefetchAssetTypeOptions() {
+    ensureAssetTypeOptionsLoaded().catch(() => {
+      // Swallowed: the Type filter dropdown and the Add-button prefill both
+      // retry this on their own (assetTypeOptionsLoadPromise is cleared on
+      // failure above), so a failed prefetch just means Type won't
+      // autopopulate until one of those retries succeeds.
+    });
+  }
+
   /** RecordID (or plain choice text for ItemStatus) of a single-select active
    *  filter, or RNSP_FILTER_ALL when that filter isn't set. Mirrors the old
    *  getSelectedLookupRecordId, but for building RNSP Args instead of a
@@ -3012,6 +3030,10 @@
     state.isLoading = false;
 
     if (isFirstLoad) {
+      // Started here (not awaited) so it's populated by the time the user
+      // can click a category's Add button, matching demo.js's eager
+      // fetchTypesViaSdk timing - see prefetchAssetTypeOptions().
+      prefetchAssetTypeOptions();
       pager.loadNext();
     } else {
       // A forced reload (e.g. after adding a new asset) must never keep
