@@ -1260,7 +1260,7 @@
       .replace(/'/g, "&#39;");
   }
 
-  /** URL label segment: spaces → underscores (decoded on asset-details). */
+  /** URL label segment: spaces â†’ underscores (decoded on asset-details). */
   function normalizeRouteLabelForUrl(value) {
     return String(value || "")
       .trim()
@@ -2488,7 +2488,7 @@
    *  field name plus any category-specific child-table field name and both
    *  are preserved as-is for the SQL side to match. */
   function parseCsvText(text) {
-    const content = String(text == null ? "" : text).replace(/^﻿/, "");
+    const content = String(text == null ? "" : text).replace(/^\uFEFF/, "");
     const rows = [];
     let row = [];
     let field = "";
@@ -2570,18 +2570,17 @@
     return (Array.isArray(headers) ? headers : []).find((h) => normalizeToken(h) === "category") || "";
   }
 
-  /** Validates a parsed CSV against what the Import flow needs: a Category
-   *  column (used to route each row to its child table - see Import_Asset.sql)
-   *  and at least one data row. SerialNumber is not checked client-side -
+  /** Validates a parsed CSV against what the Import flow needs: at least one
+   *  data row. Category is NOT required here - Import_Asset.sql already
+   *  handles a missing/blank Category by importing into EAsset_Master only
+   *  (no child table), the same graceful path it uses for an unrecognized
+   *  category. SerialNumber is not checked client-side either -
    *  Import_Asset.sql rejects any row with a blank/missing Serial Number
    *  (it's the sole unique key for an asset) and reports it back per-row as
    *  Status='failed', which runImport() surfaces in the summary. */
   function validateParsedCsvForImport(parsed) {
     if (!parsed || !Array.isArray(parsed.headers) || !parsed.headers.length) {
       return { valid: false, reason: "The file does not look like a CSV (no header row found)." };
-    }
-    if (!findCsvCategoryHeader(parsed.headers)) {
-      return { valid: false, reason: 'The CSV must include a "Category" column.' };
     }
     if (!Array.isArray(parsed.rows) || !parsed.rows.length) {
       return { valid: false, reason: "The CSV has a header row but no data rows." };
