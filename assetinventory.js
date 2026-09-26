@@ -91,7 +91,10 @@
   const state = {
     types: [],
     typeLookupByNormalizedName: {},
-    selectedType: "",
+    // Type filter defaults to "IT" rather than "All Types" - see
+    // activeAssetTypeArgValue/renderTypeFilter for how this flows into the
+    // very first RNSP call and the dropdown's initial display.
+    selectedType: "IT",
     viewMode: "grid",
     viewModeChosen: false,
     renderedCards: [],
